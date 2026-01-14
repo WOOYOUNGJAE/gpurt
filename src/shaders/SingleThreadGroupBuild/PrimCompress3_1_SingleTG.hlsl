@@ -94,7 +94,7 @@ static void WriteTwoTriPrimStruct(
     // triDesc 1 -------- 29 bits
     //------------------- 1024 bits
 
-    const uint indexSectionMidpoint = ComputeIndexSectionMidpoint(2, 31, 31);
+    const uint indexSectionMidpoint = FIXED_INDEX_SECTION_MIDPOINT;
 
     uint d[PRIMITIVE_STRUCT_SIZE_IN_DW];
 

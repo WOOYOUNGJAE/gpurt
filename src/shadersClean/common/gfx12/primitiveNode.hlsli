@@ -61,6 +61,18 @@
 #define TRI_DESC_TRI0_V1_IDX_SHIFT              21
 #define TRI_DESC_TRI0_V2_IDX_SHIFT              25
 
+// Important!! Fixed Layout sizes.
+#define FIXED_PAYLOAD_X_LENGTH          32
+#define FIXED_PAYLOAD_Y_LENGTH          32
+#define FIXED_PAYLOAD_Z_LENGTH          32
+#define FIXED_TRAILING_ZERO_LENGTH      0
+#define FIXED_GEOID_ANCHOR_SIZE         24
+#define FIXED_GEOID_PAYLOAD_SIZE        12
+#define FIXED_FLOAT_OR_UNORM16          0 // float
+#define FIXED_PRIMID_ANCHOR_SIZE        29
+#define FIXED_PRIMID_PAYLOAD_SIZE       18
+#define FIXED_INDEX_SECTION_MIDPOINT    808
+
 //=====================================================================================================================
 static void PackedTriDescSetTriangle(
     uint triangleIdx,
@@ -95,18 +107,6 @@ static void PackedTriDescSetInvalidTriangle(
 }
 
 //=====================================================================================================================
-static uint ComputeIndexSectionMidpoint(
-    uint triPairCount,
-    uint primIdPayloadLength,
-    uint primIdAnchorLength)
-{
-    return 1024u -
-           (triPairCount * TRI_PAIR_DESC_SIZE) -
-           (((2 * triPairCount) - 1) * primIdPayloadLength) -
-           primIdAnchorLength;
-}
-
-//=====================================================================================================================
 static uint PackMetadataHeaderBitsLo(
     uint payloadXLengthMinusOne,
     uint payloadYLengthMinusOne,
@@ -136,6 +136,31 @@ static uint PackMetadataHeaderBitsHi(
     return ((primIdAnchorSize & 0x1F) |
             ((primIdPayloadSize & 0x1F) << 5) |
             ((indexSectionMidpoint & 0x3FF) << 10));
+}
+
+// Important!! Fixed Layout Pack functions.
+//=====================================================================================================================
+static uint PackFixedMetadataHeaderBitsLo(uint triPairCount)
+{
+    return PackMetadataHeaderBitsLo(
+        FIXED_PAYLOAD_X_LENGTH - 1,     // n-1 encoding
+        FIXED_PAYLOAD_Y_LENGTH - 1,     // n-1 encoding
+        FIXED_PAYLOAD_Z_LENGTH - 1,     // n-1 encoding
+        FIXED_TRAILING_ZERO_LENGTH,
+        FIXED_GEOID_ANCHOR_SIZE >> 1,   // n/2 encoding
+        FIXED_GEOID_PAYLOAD_SIZE >> 1,  // n/2 encoding
+        triPairCount-1,                 // n-1 encoding
+        FIXED_FLOAT_OR_UNORM16);
+}
+
+//=====================================================================================================================
+static uint PackFixedMetadataHeaderBitsHi()
+{
+    return PackMetadataHeaderBitsHi(
+        FIXED_PRIMID_ANCHOR_SIZE,
+        FIXED_PRIMID_PAYLOAD_SIZE,
+        FIXED_INDEX_SECTION_MIDPOINT
+    );
 }
 
 //=====================================================================================================================
@@ -1027,6 +1052,7 @@ struct PrimitiveStructure
     }
 };
 
+// Important!! Fixed Layout Apply.
 //=====================================================================================================================
 static bool TryInitTriStructHeader(
     in float3                             vertex0,
@@ -1042,26 +1068,26 @@ static bool TryInitTriStructHeader(
     in bool                               enableTrailingZeroCompression,
     inout_param(UnpackedPrimStructHeader) header)
 {
-    const uint trailingZeroLength = (isProcedural || !enableTrailingZeroCompression) ?
-                                    0 : CommonTrailingZeroBits(planeUnion);
+    const uint trailingZeroLength = FIXED_TRAILING_ZERO_LENGTH;
     uint3 prefixLengths = (isProcedural || !enableTrailingZeroCompression) ?
                            uint3(0, 0, 0) : CommonPrefixBits(planeDiffs);
     prefixLengths = min(prefixLengths, uint3(31 - trailingZeroLength, 31 - trailingZeroLength, 31 - trailingZeroLength));
-    const uint vertexSize =	96 - (prefixLengths.x + prefixLengths.y + prefixLengths.z + 3 * trailingZeroLength);
-    const uint primPayloadLength = 32 - LeadingZeroBits(primIdDiff);
-    const uint primAnchorLength  = 32 - LeadingZeroBits(primIdAnchor);
+
+    const uint vertexSize        = 96 - (prefixLengths.x + prefixLengths.y + prefixLengths.z + 3 * trailingZeroLength);
+    const uint primPayloadLength = FIXED_PRIMID_PAYLOAD_SIZE;
+    const uint primAnchorLength  = FIXED_PRIMID_ANCHOR_SIZE;
 
     // Note, geometry ID payload and anchor lengths are encoded as multiple of 2. We need to align the lengths here
     // to account for that
-    const uint geoPayloadLength = Pow2Align(32 - LeadingZeroBits(geoIdDiff), 2);
-    const uint geoAnchorLength = Pow2Align(32 - LeadingZeroBits(geoIdAnchor), 2);
+    const uint geoPayloadLength = FIXED_GEOID_PAYLOAD_SIZE;
+    const uint geoAnchorLength  = FIXED_GEOID_ANCHOR_SIZE;
 
-    const uint pairDescDataSize = triPairCount * TRI_PAIR_DESC_SIZE;
+    const uint pairDescDataSize  = triPairCount * TRI_PAIR_DESC_SIZE;
     const uint idPayloadDataSize = ((2 * triPairCount) - 1) * (primPayloadLength + geoPayloadLength);
-    const uint vertexDataSize = uniqueVertexCount * vertexSize;
-    const uint anchorSizes = prefixLengths.x + prefixLengths.y + prefixLengths.z + primAnchorLength + geoAnchorLength;
-    const uint requisiteBits = pairDescDataSize + idPayloadDataSize + vertexDataSize + anchorSizes;
-    if (requisiteBits > TRI_STRUCT_DATA_SECTION_SIZE_BITS || uniqueVertexCount > 16 || triPairCount > 8)
+    const uint vertexDataSize    = uniqueVertexCount * vertexSize;
+    const uint anchorSizes       = prefixLengths.x + prefixLengths.y + prefixLengths.z + primAnchorLength + geoAnchorLength;
+    const uint requisiteBits     = pairDescDataSize + idPayloadDataSize + vertexDataSize + anchorSizes;
+    if (requisiteBits > TRI_STRUCT_DATA_SECTION_SIZE_BITS || uniqueVertexCount > 7 || triPairCount > 3)
     {
         // One pair should always fit
         GPU_ASSERT(triPairCount > 1);
@@ -1080,49 +1106,15 @@ static bool TryInitTriStructHeader(
     header.prefixSourceZ        = vertex0.z;
     header.triPairCountMinusOne = (triPairCount - 1);
 
-    if (isProcedural)
-    {
-        // store full vertex instead of compressed format
-        //
-        // each vertex is stored as 1 DW (32bit)
-        // min.x
-        // min.y
-        // min.z
-        // max.x
-        // max.y
-        // max.z
-        //
-        // geometryPayload---  0 bit
-        // geometryIdAncor--- 15 bit
-        //------------------- index_section_midpoint
-        // primIdAnchor ----- 32 bit
-        // primIdPayload-----  0 bit
-        // triDesc----------- 29 bit
-        //------------------- 1024bit
-
-        header.payloadXLengthMinusOne = 0;      // decode as 1
-        header.payloadYLengthMinusOne = 0;      // decode as 1
-        header.payloadZLengthMinusOne = 0;      // decode as 1
-        header.trailingZeroLength     = 0;
-
-        header.geoIdPayloadSizeDivTwo = 0x0;
-        header.geoIdAnchorSizeDivTwo  = 0xF;    // decode as 30
-        header.indexSectionMidpoint   = ComputeIndexSectionMidpoint(1, 0, 32);
-        header.primIdAnchorSize       = 0x1F;
-        header.primIdPayloadSize      = 0;
-    }
-    else
-    {
-        header.payloadXLengthMinusOne = (32 - prefixLengths.x - trailingZeroLength) - 1;
-        header.payloadYLengthMinusOne = (32 - prefixLengths.y - trailingZeroLength) - 1;
-        header.payloadZLengthMinusOne = (32 - prefixLengths.z - trailingZeroLength) - 1;
-        header.trailingZeroLength     = trailingZeroLength;
-        header.geoIdAnchorSizeDivTwo  = geoAnchorLength / 2;
-        header.geoIdPayloadSizeDivTwo = geoPayloadLength / 2;
-        header.indexSectionMidpoint   = ComputeIndexSectionMidpoint(triPairCount, primPayloadLength, primAnchorLength);
-        header.primIdAnchorSize       = primAnchorLength;
-        header.primIdPayloadSize      = primPayloadLength;
-    }
+    header.payloadXLengthMinusOne = FIXED_PAYLOAD_X_LENGTH - 1;
+    header.payloadYLengthMinusOne = FIXED_PAYLOAD_Y_LENGTH - 1;
+    header.payloadZLengthMinusOne = FIXED_PAYLOAD_Z_LENGTH - 1;
+    header.trailingZeroLength     = trailingZeroLength;
+    header.geoIdAnchorSizeDivTwo  = geoAnchorLength / 2;
+    header.geoIdPayloadSizeDivTwo = geoPayloadLength / 2;
+    header.indexSectionMidpoint   = FIXED_INDEX_SECTION_MIDPOINT;
+    header.primIdAnchorSize       = primAnchorLength;
+    header.primIdPayloadSize      = primPayloadLength;
 
     return true;
 }

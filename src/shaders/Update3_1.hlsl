@@ -131,6 +131,7 @@ void ClearAndInitDstBVH(
     }
 }
 
+// Important!! Fixed Layout Apply.
 //======================================================================================================================
 void EncodeUpdate3_1(
     in uint              globalId,
@@ -376,7 +377,8 @@ void EncodeUpdate3_1(
                 const uint primStructOffset = metadataSize + childNodeOffset;
 
                 // Fetch geometry index, primitive index and pair descriptor
-                const uint4 geomIdPrimIdAndPairDescDwords = SrcBuffer.Load4(primStructOffset + (28 * 4));
+                const uint3 geomIdPrimIdDwords = SrcBuffer.Load3(primStructOffset + (24 * 4));
+                const uint PairDescDword = SrcBuffer.Load(primStructOffset + (31 * 4));
 
                 TriangleData tri0 = (TriangleData)0;
                 TriangleData tri1 = (TriangleData)0;
@@ -385,21 +387,21 @@ void EncodeUpdate3_1(
                 bool isTri1Valid  = false;
                 uint geomId1Dword = 0;
 
-                const uint primId0 = bitFieldExtract(geomIdPrimIdAndPairDescDwords[1], 5, 27) |
-                                     (bitFieldExtract(geomIdPrimIdAndPairDescDwords[2], 0, 4) << 27);
-                const uint geomId0 = bitFieldExtract(geomIdPrimIdAndPairDescDwords[0], 7, 25) |
-                                     (bitFieldExtract(geomIdPrimIdAndPairDescDwords[1], 0, 5) << 25);
+                        // Mariner M5 Fixed Layout format.
+                const uint primId0 = bitFieldExtract(geomIdPrimIdDwords[1], 8, 24) |
+                             (bitFieldExtract(geomIdPrimIdDwords[2], 0, 5) << 24);
+                const uint geomId0 = bitFieldExtract(geomIdPrimIdDwords[0], 16, 16) |
+                             (bitFieldExtract(geomIdPrimIdDwords[1], 0, 8) << 16);
 
                 GPU_ASSERT(geomId0 < ShaderConstants.numDescs);
 
                 const BuildShaderGeometryConstants geomConstants0 = GeometryConstants[NonUniformResourceIndex(geomId0)];
                 const NumPrimAndInputOffset inputOffsets0 = LoadInputOffsetsAndNumPrim(geomId0, false);
-                const uint flattenedPrimitiveIndex0 = inputOffsets0.primitiveOffset + primId0;
 
                 if (isProcedural == false)
                 {
                     TrianglePairDesc pairDesc;
-                    pairDesc.SetData(bitFieldExtract(geomIdPrimIdAndPairDescDwords[3], 3, 29));
+                    pairDesc.SetData(bitFieldExtract(PairDescDword, 3, 29));
 
                     isTri1Valid = pairDesc.Tri1Valid();
 
@@ -414,26 +416,21 @@ void EncodeUpdate3_1(
                     // Generate triangle bounds
                     boundingBox = GenerateTriangleBoundingBox(tri0.v0, tri0.v1, tri0.v2);
 
-                    if (Settings.tlasRefittingMode != TlasRefittingMode::Disabled)
-                    {
-                        UpdateTriangleKdop(tri0.v0, tri0.v1, tri0.v2);
-                    }
-
                     if (isTri1Valid)
                     {
-                        geomId1Dword = SrcBuffer.Load(primStructOffset + (27 * 4));
-
-                        const uint primId1 = bitFieldExtract(geomIdPrimIdAndPairDescDwords[2], 4, 28) |
-                                             (bitFieldExtract(geomIdPrimIdAndPairDescDwords[3], 0, 3) << 28);
-                        const uint geomId1 = bitFieldExtract(geomId1Dword, 9, 23) |
-                                             (bitFieldExtract(geomIdPrimIdAndPairDescDwords[0], 0, 7) << 23);
+                        // Mariner M5 Fixed Layout format.
+                        const uint primRemoveMask = ~((1u << 18) - 1u);
+                        const uint geomRemoveMask = ~((1u << 12) - 1u);
+                        const uint primId1 = (primId0 & primRemoveMask) |
+                                            bitFieldExtract(geomIdPrimIdDwords[2], 5, 18);
+                        const uint geomId1 = (geomId0 & geomRemoveMask) |
+                                            bitFieldExtract(geomIdPrimIdDwords[0], 4, 12);
 
                         GPU_ASSERT(geomId1 < ShaderConstants.numDescs);
 
                         const BuildShaderGeometryConstants geomConstants1 =
                             GeometryConstants[NonUniformResourceIndex(geomId1)];
                         const NumPrimAndInputOffset inputOffsets1 = LoadInputOffsetsAndNumPrim(geomId1, false);
-                        const uint flattenedPrimitiveIndex1 = inputOffsets1.primitiveOffset + primId1;
 
                         FetchTrianglePrimitive(geomConstants1,
                                                inputOffsets1,
@@ -446,11 +443,6 @@ void EncodeUpdate3_1(
                         // Generate triangle bounds
                         const BoundingBox bbox1 = GenerateTriangleBoundingBox(tri1.v0, tri1.v1, tri1.v2);
                         boundingBox = CombineAABB(boundingBox, bbox1);
-
-                        if (Settings.tlasRefittingMode != TlasRefittingMode::Disabled)
-                        {
-                            UpdateTriangleKdop(tri1.v0, tri1.v1, tri1.v2);
-                        }
                     }
                 }
                 else
@@ -468,8 +460,8 @@ void EncodeUpdate3_1(
                 UpdatePairPrimStruct(tri0,
                                      tri1,
                                      isTri1Valid,
-                                     geomIdPrimIdAndPairDescDwords,
-                                     geomId1Dword,
+                                     geomIdPrimIdDwords,
+                                     PairDescDword,
                                      primStructOffset,
                                      isProcedural);
             }

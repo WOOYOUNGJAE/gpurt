@@ -32,13 +32,14 @@
 
 #if GPURT_BVH_BUILD_SHADER
 //=====================================================================================================================
+// Important!! Fixed Layout Apply.
 // Update a Primitive Structure containing a single triangle pair
 void UpdatePairPrimStruct(
     TriangleData tri0,
     TriangleData tri1,
     bool         isTri1Valid,
-    uint4        geomIdPrimIdAndPairDescDwords,
-    uint         geomId1Dword,
+    uint3        geomIdPrimIdDwords,
+    uint         PairDescDword,
     uint         nodeOffset,
     bool         isProcedural)
 {
@@ -46,37 +47,39 @@ void UpdatePairPrimStruct(
     //
     // Each vertex is stored as 3 DW (32bit) without prefix
     //
-    // Header ----------- 52 bits
-    // Vertex Data ------ 576 bits (96 * 3 * 2)
-    // ----- Unused ----- 245 bits
-    // geometryId1Payload 30 bits
-    // geometryIdAnchor-- 30 bits
-    //------------------- indexSectionMidpoint
-    // primIdAnchor ----- 31 bits
-    // primId1Payload---- 31 bits
-    // triDesc----------- 29 bits
+    // Header                    - 52  bits
+    // Vertex Data               - 672 bits (96 * 7)
+    // Geometry Index 5 Payload  - 12  bits
+    // Geometry Index 4 Payload  - 12  bits
+    // Geometry Index 3 Payload  - 12  bits
+    // Geometry Index 2 Payload  - 12  bits
+    // Geometry Index 1 Payload  - 12  bits
+    // Geometry Index 0 Anchor   - 24  bits
+    // Primitive Index 0 Anchor  - 29  bits
+    // Primitive Index 1 Payload - 18  bits
+    // Primitive Index 2 Payload - 18  bits
+    // Primitive Index 3 Payload - 18  bits
+    // Primitive Index 4 Payload - 18  bits
+    // Primitive Index 5 Payload - 18  bits
+    // Padding                   - 10  bits
+    // Triangle Pair Descriptor2 - 29  bits
+    // Triangle Pair Descriptor1 - 29  bits
+    // Triangle Pair Descriptor0 - 29  bits
     //------------------- 1024 bits
 
-    const uint indexSectionMidpoint = ComputeIndexSectionMidpoint(1, 31, 31);
+    const uint indexSectionMidpoint = FIXED_INDEX_SECTION_MIDPOINT;
 
     uint d[PRIMITIVE_STRUCT_SIZE_IN_DW];
 
     if (Settings.isUpdateInPlace == false)
     {
         // Metadata header
-        if (isProcedural)
-        {
-            d[0] = PackMetadataHeaderBitsLo(0, 0, 0, 0, 15, 15, 0, false);
-        }
-        else
-        {
-            d[0] = PackMetadataHeaderBitsLo(31, 31, 31, 0, 15, 15, 0, false);
-        }
+        d[0] = PackFixedMetadataHeaderBitsLo(1); // only one pair being encoded.
         DstMetadata.Store(nodeOffset, d[0]);
     }
 
     // Rest of Metadata header
-    d[1] = PackMetadataHeaderBitsHi(31, 31, indexSectionMidpoint);
+    d[1] = PackFixedMetadataHeaderBitsHi();
 
     // tri0 v0
     d[1] = bitFieldInsert(d[1], 20, 12, asuint(tri0.v0.x));
@@ -144,16 +147,16 @@ void UpdatePairPrimStruct(
         d[21] = 0;
         d[22] = 0;
         d[23] = 0;
-        d[24] = 0;
-        d[25] = 0;
-        d[26] = 0;
+        // Mariner M5 Fixed Layout format.
+        d[24] = geomIdPrimIdDwords[0];
+        d[25] = geomIdPrimIdDwords[1];
+        d[26] = geomIdPrimIdDwords[2];
+        d[27] = 0;
+        d[28] = 0;
+        d[29] = 0;
+        d[30] = 0;
 
-        // Do not have to fetch geom ids, prim ids and triangle pair descriptor again, we can reuse
-        d[27] = geomId1Dword;
-        d[28] = geomIdPrimIdAndPairDescDwords[0];
-        d[29] = geomIdPrimIdAndPairDescDwords[1];
-        d[30] = geomIdPrimIdAndPairDescDwords[2];
-        d[31] = geomIdPrimIdAndPairDescDwords[3];
+        d[31] = PairDescDword;
 
         [unroll]
         for (uint i = 20; i < PRIMITIVE_STRUCT_SIZE_IN_DW; i += 4)
