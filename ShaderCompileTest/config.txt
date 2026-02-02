@@ -1,0 +1,10 @@
+DXC_PATH=D:\Git\Myprojects\AMDVLK\gpurt\ShaderCompileTest\dxc.exe
+SRC_DIR=TO_\AMDVLK\gpurt\src\shaders
+OUT_DIR=.\output
+
+REM Target Shaders
+REM 형식: [Shader이름:진입점(없으면 이름과 동일)] [추가 정의 매크로]
+BuildSingleThreadGroup STGB_THREADGROUP_SIZE=256
+BuildFastAgglomerativeLbvh
+BuildParallel:BuildBvh GPURT_BUILD_PARALLEL_ENABLE_RTIP3=1
+REM UpdateQBVH
