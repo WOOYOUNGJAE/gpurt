@@ -1644,6 +1644,7 @@ static void EncodeCompressedBoxNode(
 
         if (laneGroup.IsFirstLane())
         {
+            float bvh8SA = 0.f;
             if (numBoxChildren == 0)
             {
                 uint obbRefitStackIndex = 0;
@@ -1654,6 +1655,15 @@ static void EncodeCompressedBoxNode(
                 ScratchGlobal.Store(
                     ShaderConstants.offsets.obbRefitStack + (obbRefitStackIndex * sizeof(uint)), bvhNodeDstIdx);
             }
+#undef OBB_DECISION_FACTOR_USE_PARENT_BOUND
+#define OBB_DECISION_FACTOR_USE_PARENT_BOUND 1
+#if OBB_DECISION_FACTOR_USE_PARENT_BOUND
+            else
+            {
+                bvh8SA = ComputeBoxSurfaceArea(parentBbox);
+            }
+            ScratchGlobal.Store<float>(ShaderConstants.offsets.bvh8SA + bvhNodeDstIdx * sizeof(float), bvh8SA);
+#endif
 
             // OBB refit flags are packed as follows:
             // b[0:3] : 2's complement of box child count. The maximum value can be 8. That requires 3 bits plus the sign

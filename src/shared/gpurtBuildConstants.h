@@ -81,6 +81,14 @@ struct RayTracingScratchDataOffsets
     uint32 obbRefitStack;
     uint32 qbvhObbFlags;
     uint32 qbvhKdops;
+#undef OBB_DECISION_FACTOR_USE_PARENT_BOUND
+#define OBB_DECISION_FACTOR_USE_PARENT_BOUND 1
+#if OBB_DECISION_FACTOR_USE_PARENT_BOUND
+    uint32 bvh8SA;
+    uint32 bvh8SA_padding0;
+    uint32 bvh8SA_padding1;
+    uint32 bvh8SA_padding2;
+#endif
     uint32 primCompNodeIndices;
     uint32 primCompNodeIndicesEnd;
 #else

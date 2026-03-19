@@ -560,8 +560,19 @@ void RefitOrientedBoundsImpl(
         {
             const float obbSA = ComputeBoxSurfaceArea(candidateObb);
             const float obbSASum = laneGroup.Sum(obbSA);
+#undef OBB_DECISION_FACTOR_USE_PARENT_BOUND
+#define OBB_DECISION_FACTOR_USE_PARENT_BOUND 1
+#if OBB_DECISION_FACTOR_USE_PARENT_BOUND
+            BoundingBox laneOBB;
+            laneOBB.min = laneGroup.Min(candidateObb.min);
+			laneOBB.max = laneGroup.Max(candidateObb.max);
+            float parentObbSA = ComputeBoxSurfaceArea(laneOBB);
+            float parentAabbSA = ScratchGlobal.Load<float>(ShaderConstants.offsets.bvh8SA + curNodeIndex * sizeof(float));
 
+            if (parentObbSA >= (parentAabbSA * OBB_SA_FACTOR_THRESHOLD))
+#else // Default (Compare Children SA Sum)
             if (obbSASum >= (aabbSASum * OBB_SA_FACTOR_THRESHOLD))
+#endif
             {
                 bestObbMatrixIndex = INVALID_OBB;
             }
