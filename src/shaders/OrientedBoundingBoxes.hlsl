@@ -263,8 +263,38 @@ inline int FetchTriKdopObbMatrixIndex(
     in  float3 v1,
     in  float3 v2)
 {
-    const float3   e0 = normalize(v1 - v0);
+#undef LEAF_ORIENTATION_FILTER_LONGEST
+#define LEAF_ORIENTATION_FILTER_LONGEST 1
+    float3 d0 = v1 - v0;
+    float3 d1 = v2 - v1;
+    float3 d2 = v0 - v2;
+
+    float len0 = dot(d0, d0);
+    float len1 = dot(d1, d1);
+    float len2 = dot(d2, d2);
+
+    float3 e0, e1;
+
+    if (len0 >= len1 && len0 >= len2) 
+    {
+        e0 = normalize(d1);
+        e1 = normalize(d2);
+    }
+    else if (len1 >= len0 && len1 >= len2) 
+    {
+        e0 = normalize(d2);
+        e1 = normalize(d0);
+    }
+    else 
+    {
+        e0 = normalize(d0);
+        e1 = normalize(d1);
+    }
+#if LEAF_ORIENTATION_FILTER_LONGEST
+#else
     const float3   e1 = normalize(v2 - v1);
+    const float3   e0 = normalize(v1 - v0);
+#endif
     const float3   N  = normalize(cross(e0, e1));
     const float3   e  = cross(e0, N);
     const float3x3 R  = { e0, N, e };
