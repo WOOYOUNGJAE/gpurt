@@ -131,10 +131,27 @@ void GenerateMortonCodesImpl(
         uint obbMatrixIdx = INVALID_OBB;
         if ((Settings.topLevelBuild == false))
         {
-            float3 v0 = node.bbox_min_or_v0;
-            float3 v1 = node.bbox_max_or_v1;
-            float3 v2 = node.sah_or_v2_or_instBasePtr;
-            obbMatrixIdx = FetchTriKdopObbMatrixIndex(v0, v1, v2);
+#undef USE_QUAD_ORIENTATION
+#define USE_QUAD_ORIENTATION 0
+#if USE_QUAD_ORIENTATION
+            if (IsScratchNodeQuadPrimitive(node))
+            {
+                // v0 is common vertex for FetchTriKdopObbMatrixIndex() Call
+                float3 v0 = node.bbox_max_or_v1;
+                float3 v1 = node.bbox_min_or_v0;
+                float3 v2 = float3(asfloat(node.splitBox_or_nodePointer),
+                                   asfloat(node.numPrimitivesAndDoCollapse),
+                                   asfloat(node.sortedPrimIndex));
+                obbMatrixIdx = FetchTriKdopObbMatrixIndex(v0, v1, v2);
+            }
+            else
+#endif
+            {
+                float3 v0 = node.bbox_min_or_v0;
+                float3 v1 = node.bbox_max_or_v1;
+                float3 v2 = node.sah_or_v2_or_instBasePtr;
+                obbMatrixIdx = FetchTriKdopObbMatrixIndex(v0, v1, v2);
+            }
         }
         else
         {

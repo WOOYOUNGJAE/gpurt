@@ -258,13 +258,16 @@ static BoundingBox ComputeOBBFromTri(
 // This is the very first step of DiTO, where the large base triangle is selected.
 // Only in this case, the large base triangle is the primitive itself and only one edge
 // is considered for the orientation.
+#undef USE_QUAD_ORIENTATION
+#define USE_QUAD_ORIENTATION 0
 inline int FetchTriKdopObbMatrixIndex(
     in  float3 v0,
     in  float3 v1,
     in  float3 v2)
 {
 #undef LEAF_ORIENTATION_FILTER_LONGEST
-#define LEAF_ORIENTATION_FILTER_LONGEST 1
+#define LEAF_ORIENTATION_FILTER_LONGEST 0
+#if LEAF_ORIENTATION_FILTER_LONGEST
     float3 d0 = v1 - v0;
     float3 d1 = v2 - v1;
     float3 d2 = v0 - v2;
@@ -290,11 +293,16 @@ inline int FetchTriKdopObbMatrixIndex(
         e0 = normalize(d0);
         e1 = normalize(d1);
     }
-#if LEAF_ORIENTATION_FILTER_LONGEST
-#else
+#else // LEAF_ORIENTATION_FILTER_LONGEST
+#   if USE_QUAD_ORIENTATION
+    // v0 is common vertex
+    const float3   e1 = normalize(v1 - v0);
+    const float3   e0 = normalize(v2 - v0);
+#   else
     const float3   e1 = normalize(v2 - v1);
     const float3   e0 = normalize(v1 - v0);
-#endif
+#   endif // USE_QUAD_ORIENTATION
+#endif // LEAF_ORIENTATION_FILTER_LONGEST
     const float3   N  = normalize(cross(e0, e1));
     const float3   e  = cross(e0, N);
     const float3x3 R  = { e0, N, e };
@@ -302,4 +310,18 @@ inline int FetchTriKdopObbMatrixIndex(
     return MatrixToBestOBBIndex(R);
 }
 
+inline int FetchTriKdopObbMatrixIndex(
+    in  float3 v0,
+    in  float3 v1,
+    in  float3 v2,
+    in  float3 v3)
+{
+    const float3   e1 = normalize(v0 - v1);
+    const float3   e0 = normalize(v3 - v1);
+    const float3   N  = normalize(cross(e0, e1));
+    const float3   e  = cross(e0, N);
+    const float3x3 R  = { e0, N, e };
+
+    return MatrixToBestOBBIndex(R);
+}
 #endif
