@@ -1656,7 +1656,7 @@ static void EncodeCompressedBoxNode(
                     ShaderConstants.offsets.obbRefitStack + (obbRefitStackIndex * sizeof(uint)), bvhNodeDstIdx);
             }
 #undef OBB_DECISION_FACTOR_USE_PARENT_BOUND
-#define OBB_DECISION_FACTOR_USE_PARENT_BOUND 1
+#define OBB_DECISION_FACTOR_USE_PARENT_BOUND 0
 #if OBB_DECISION_FACTOR_USE_PARENT_BOUND
             else
             {

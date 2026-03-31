@@ -403,6 +403,83 @@ BoundingBox ComputeBoxNodeOBB(
 }
 
 //=====================================================================================================================
+// ComputeOBBBounds's LDS version
+static float2 ComputeOBBBoundsInLDS(
+    in uint laneGroupIndex,
+    float3  basis)
+{
+    const uint apexPointIndex = FindApexPoint(basis);
+    const uint3 facet = GenerateKdopFacet(apexPointIndex);
+
+    const float3x3 normal = {
+        GenerateKdopVertex(facet.x),
+        GenerateKdopVertex(facet.y),
+        GenerateKdopVertex(facet.z)
+    };
+
+    float2 extentsX = { ReadKDopMin(laneGroupIndex, facet.x),  ReadKDopMax(laneGroupIndex, facet.x) };
+    if (facet.x % 2 == 1)
+    {
+        float mn = extentsX.x;
+        extentsX.x = extentsX.y;
+        extentsX.y = mn;
+        extentsX *= -1.0;
+    }
+    float2 extentsY = { ReadKDopMin(laneGroupIndex, facet.y),  ReadKDopMax(laneGroupIndex, facet.y) };
+    if (facet.y % 2 == 1)
+    {
+        float mn = extentsY.x;
+        extentsY.x = extentsY.y;
+        extentsY.y = mn;
+        extentsY *= -1.0;
+    }
+    float2 extentsZ = { ReadKDopMin(laneGroupIndex, facet.z),  ReadKDopMax(laneGroupIndex, facet.z) };
+    if (facet.z % 2 == 1)
+    {
+        float mn = extentsZ.x;
+        extentsZ.x = extentsZ.y;
+        extentsZ.y = mn;
+        extentsZ *= -1.0;
+    }
+
+    // Max plane
+    float3 kdopPlanes = float3(extentsX.y, extentsY.y, extentsZ.y);
+    float3 xpApex = GetApexPoint(normal, kdopPlanes);
+
+    // Min plane
+    kdopPlanes = float3(extentsX.x, extentsY.x, extentsZ.x);
+    float3 xnApex = GetApexPoint(-normal, kdopPlanes);
+
+    return float2(dot(xpApex, basis), dot(xnApex, -basis));
+}
+
+//=====================================================================================================================
+// In-SharedMemory Version of ComputeBoxNodeOBB
+BoundingBox ComputeBoxNodeOBBInLDS(
+    in uint laneGroupIndex,
+    in uint obbMatrixIndex)
+{
+    BoundingBox obbBbox;
+    // Get 3 closest directions to each OBB extent.
+    const float3x3 obbMatrix = OBBIndexToMatrix(obbMatrixIndex);
+
+    /**
+    * Our OBB Matrix has 6 facets that its basis vectors map to.
+    * We must find those 6 facets and each of their K-DOP extents.
+    */
+    float2 boundsX = ComputeOBBBoundsInLDS(laneGroupIndex, obbMatrix[0]);
+    float2 boundsY = ComputeOBBBoundsInLDS(laneGroupIndex, obbMatrix[1]);
+    float2 boundsZ = ComputeOBBBoundsInLDS(laneGroupIndex, obbMatrix[2]);
+    float3 p0 = float3(boundsX.x, boundsY.x, boundsZ.x);
+    float3 p1 = float3(boundsX.y, boundsY.y, boundsZ.y);
+
+    obbBbox.min = min(p0, p1);
+    obbBbox.max = max(p0, p1);
+
+    return obbBbox;
+}
+
+//=====================================================================================================================
 // This version of Post Proc Obbs assigns 8 threads per node and uses LDS to store the current node's
 // Kdop, 8 OBBs and the best obbMatrixIndex.
 void RefitOrientedBoundsImpl(
@@ -516,6 +593,7 @@ void RefitOrientedBoundsImpl(
         const uint bestObbMatrixIdxLeaf = (obbFlags >> 24u);
 
         uint bestObbMatrixIndex = bestObbMatrixIdxLeaf;
+        uint curNodeObbMatrixIndex = bestObbMatrixIndex;
         if (laneGroup.laneIndex == bestObbLaneIndex)
         {
             if (childIsLeaf == false)
@@ -536,6 +614,28 @@ void RefitOrientedBoundsImpl(
             }
             else
             {
+#undef UPDATE_CUR_ORIENTATION
+#define UPDATE_CUR_ORIENTATION 1
+#if UPDATE_CUR_ORIENTATION 
+                // Update KDOP in group shared memory mapped to the current lane group.
+                for (uint i = 0; i < KDOP_PLANE_COUNT; i++)
+                {
+                    float2 extents = ScratchGlobal.Load<float2>(childKdopOfs + (i * sizeof(float2)));
+                    UpdateKDopMin(laneGroupIndex, i, extents.x);
+                    UpdateKDopMax(laneGroupIndex, i, extents.y);
+                }
+
+                // re-adjust orientation that making cur(children's parent) obb smallest
+				uint rotatedMatrixIndex = Obb45DegRotLut[bestObbMatrixIndex][laneGroup.laneIndex];
+                BoundingBox curCandidateObb = ComputeBoxNodeOBBInLDS(laneGroup.groupIndex, bestObbMatrixIndex);
+                const float curObbSA = ComputeBoxSurfaceArea(curCandidateObb);
+				const float minObbSA = laneGroup.Min(curObbSA);
+                uint minLane = laneGroup.GetFirstActiveLaneIndex(curObbSA == minObbSA);
+                curNodeObbMatrixIndex = laneGroup.Broadcast(rotatedMatrixIndex, minLane);
+
+                // Children's
+                candidateObb = ComputeBoxNodeOBB(childKdopOfs, bestObbMatrixIndex);
+#else
                 candidateObb = ComputeBoxNodeOBB(childKdopOfs, bestObbMatrixIndex);
 
                 // Update KDOP in group shared memory mapped to the current lane group.
@@ -545,6 +645,7 @@ void RefitOrientedBoundsImpl(
                     UpdateKDopMin(laneGroupIndex, i, extents.x);
                     UpdateKDopMax(laneGroupIndex, i, extents.y);
                 }
+#endif
             }
 
             // Add 6 ULP scaled to the longest extent of padding to OBB extents for watertightness:
@@ -561,7 +662,7 @@ void RefitOrientedBoundsImpl(
             const float obbSA = ComputeBoxSurfaceArea(candidateObb);
             const float obbSASum = laneGroup.Sum(obbSA);
 #undef OBB_DECISION_FACTOR_USE_PARENT_BOUND
-#define OBB_DECISION_FACTOR_USE_PARENT_BOUND 1
+#define OBB_DECISION_FACTOR_USE_PARENT_BOUND 0
 #if OBB_DECISION_FACTOR_USE_PARENT_BOUND
             BoundingBox laneOBB;
             laneOBB.min = laneGroup.Min(candidateObb.min);
@@ -575,6 +676,7 @@ void RefitOrientedBoundsImpl(
 #endif
             {
                 bestObbMatrixIndex = INVALID_OBB;
+				curNodeObbMatrixIndex = INVALID_OBB;
             }
         }
 
@@ -591,7 +693,12 @@ void RefitOrientedBoundsImpl(
             if (laneGroup.IsFirstLane())
             {
                 DstBuffer.Store<uint16_t>(nodeOffset + QUANTIZED_BVH8_NODE_OFFSET_OBB_MATRIX_INDEX,
+#if UPDATE_CUR_ORIENTATION
+                                          uint16_t(curNodeObbMatrixIndex));
+#else
                                           uint16_t(bestObbMatrixIndex));
+#endif
+
                 DstBuffer.Store<float3>(nodeOffset + QUANTIZED_BVH8_NODE_OFFSET_ORIGIN,
                                         minOfMins);
 
