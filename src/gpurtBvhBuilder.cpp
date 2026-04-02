@@ -1169,7 +1169,6 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     uint32 obbRefitStack = 0;
     uint32 qbvhObbFlags = 0;
     uint32 qbvhKdops = 0;
-    uint32 bvh8SA = 0;
 #endif
 
     // ============ TaskLoopCounters ============
@@ -1217,12 +1216,6 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
 
             // These flags contains the precomputed packed bits for OBB computation for each internal node
             qbvhObbFlags = ReserveBytes(OBB_TABLE_ENTRY_SIZE * maxObbSlotCount, &runningOffset);
-#undef OBB_DECISION_FACTOR_USE_PARENT_BOUND
-#define OBB_DECISION_FACTOR_USE_PARENT_BOUND 0
-#if OBB_DECISION_FACTOR_USE_PARENT_BOUND
-            // qbvh's sa is in scratch buffer, but bvh8's not
-            bvh8SA = ReserveBytes(sizeof(float) * GetNumInternalNodeCount(), &runningOffset);
-#endif
             baseOffset4 = runningOffset;
 
             // Kdop storage space: we're trying to re-use as much of the scratch buffer as possible.
@@ -1530,9 +1523,6 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
         pOffsets->obbRefitStack = obbRefitStack;
         pOffsets->qbvhObbFlags = qbvhObbFlags;
         pOffsets->qbvhKdops = qbvhKdops;
-#if OBB_DECISION_FACTOR_USE_PARENT_BOUND
-		pOffsets->bvh8SA = bvh8SA;
-#endif
 #endif
 #if GPURT_BUILD_RTIP3_1
         pOffsets->primCompNodeIndices    = primCompNodeIndices;

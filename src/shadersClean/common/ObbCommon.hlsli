@@ -27,6 +27,7 @@
 #define _OBB_COMMON_HLSL
 
 #define INVALID_OBB 0x7f
+#define OBB_ROTATION_VARIATION_COUNT 8
 
 static const uint64_t ObbStage1Lut[104] = {
     0x162c0ad6000019, 0x16ac02d6000019, 0x11440c51000019, 0x11c40451000019, 0xb580d8b000019,
@@ -57,7 +58,8 @@ static const uint ObbStage2Lut[32] = {
     0x3f30fbc5, 0x3f3504f3, 0x3f3d3a87, 0x3f4e034d, 0x3f5a827a, 0x3f692290, 0x3f6c835e, 0x3f73023f,
     0x3f7641af, 0x3f800000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000 };
 
-static const uint Obb45DegRotLut[104][8] = {
+static const uint Obb45DegRotLut[104][OBB_ROTATION_VARIATION_COUNT] =
+{
     {0, 4, 58, 76, 42, 92, 76, 46},
     {1, 0, 66, 58, 51, 42, 28, 76},
     {2, 6, 60, 78, 44, 86, 46, 70},
