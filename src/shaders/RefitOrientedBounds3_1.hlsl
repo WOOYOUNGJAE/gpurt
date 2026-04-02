@@ -151,6 +151,20 @@ BoundingBox ComputeTriangleKDop(
 }
 
 //=====================================================================================================================
+// Compute only KDop, not OBB
+inline void ComputeTriangleKDopOnly(
+    const uint         laneGroupIndex,
+    const TriangleData tri)
+{
+    for (uint i = 0; i < KDOP_PLANE_COUNT; i++)
+    {
+        const float2 extents = ComputeTriangleKdopExtents(i, tri.v0, tri.v1, tri.v2);
+        UpdateKDopMin(laneGroupIndex, i, extents.x);
+        UpdateKDopMax(laneGroupIndex, i, extents.y);
+    }
+}
+
+//=====================================================================================================================
 inline uint ReadPackedBitsFromNode(
     uint nodeOffset,
     uint startBitOffset,
@@ -376,6 +390,130 @@ BoundingBox ComputePrimNodeKDop(
 }
 
 //=====================================================================================================================
+// Calculate only an OBB for a BVH8 primitive node, not updating kdop.
+BoundingBox ComputePrimNodeOBB(
+    in  uint        nodeType,
+    in  uint        nodeAddr,
+    in  uint        obbMatrixIndex)
+{
+    const float3x3 obbMatrix = OBBIndexToMatrix(obbMatrixIndex);
+
+    BoundingBox obb = (BoundingBox)0;
+    obb.min = float3(+FLT_MAX, +FLT_MAX, +FLT_MAX);
+    obb.max = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+
+    uint currPairIdx = GetPairIndexFromNodeType(nodeType);
+    uint currNodeAddr = nodeAddr;
+    bool endOfRange = true;
+
+    do
+    {
+        // Prefetch header data and triangle pair descriptor for reading packed data below
+        const PrimStructHeader header = DstBuffer.Load<PrimStructHeader>(currNodeAddr);
+        const TrianglePairDesc pairDesc = ReadTrianglePairDescFromNode(currNodeAddr, currPairIdx);
+
+        // Prefetch vertex prefixes for unpacking vertex data
+        const uint3 prefixes = ReadVertexPrefixesFromNode(currNodeAddr, header);
+
+        const TriangleData tri0 = ReadTriangleVerticesFromNode(currNodeAddr, header, prefixes, pairDesc, 0);
+        const BoundingBox  tri0ObbBounds = ComputeOBBFromTri(tri0.v0, tri0.v1, tri0.v2, obbMatrix);
+
+        obb.min = min(obb.min, tri0ObbBounds.min);
+        obb.max = max(obb.max, tri0ObbBounds.max);
+
+        if (pairDesc.Tri1Valid())
+        {
+            const TriangleData tri1 = ReadTriangleVerticesFromNode(currNodeAddr, header, prefixes, pairDesc, 1);
+            const BoundingBox  tri1ObbBounds = ComputeOBBFromTri(tri1.v0, tri1.v1, tri1.v2, obbMatrix);
+
+            obb.min = min(obb.min, tri1ObbBounds.min);
+            obb.max = max(obb.max, tri1ObbBounds.max);
+        }
+
+        if (Settings.maxPrimRangeSize > 2)
+        {
+            // Advance to the next triangle pair
+            endOfRange = (pairDesc.PrimRangeStopBit() != 0);
+
+            if (endOfRange == false)
+            {
+                // Primitive range continues
+                const uint trianglePairCount = header.TrianglePairCount();
+                if (currPairIdx == (trianglePairCount - 1))
+                {
+                    // this is the last triangle pair in node, continue in next node
+                    currNodeAddr += PRIMITIVE_STRUCT_SIZE_IN_BYTE;
+                    currPairIdx = 0;
+                }
+                else
+                {
+                    // Continue to next triangle pair in node
+                    currPairIdx++;
+                }
+            }
+        }
+    } while (endOfRange == false);
+
+    return obb;
+}
+
+
+//=====================================================================================================================
+// Calculate only K-DOP, but not an OBB for a BVH8 primitive node.
+void ComputePrimNodeKDopOnly(
+    in  uint        laneGroupIndex,
+    in  uint        nodeType,
+    in  uint        nodeAddr)
+{
+    uint currPairIdx = GetPairIndexFromNodeType(nodeType);
+    uint currNodeAddr = nodeAddr;
+    bool endOfRange = true;
+
+    do
+    {
+        // Prefetch header data and triangle pair descriptor for reading packed data below
+        const PrimStructHeader header = DstBuffer.Load<PrimStructHeader>(currNodeAddr);
+        const TrianglePairDesc pairDesc = ReadTrianglePairDescFromNode(currNodeAddr, currPairIdx);
+
+        // Prefetch vertex prefixes for unpacking vertex data
+        const uint3 prefixes = ReadVertexPrefixesFromNode(currNodeAddr, header);
+
+        const TriangleData tri0 = ReadTriangleVerticesFromNode(currNodeAddr, header, prefixes, pairDesc, 0);
+        ComputeTriangleKDopOnly(laneGroupIndex, tri0);
+
+
+        if (pairDesc.Tri1Valid())
+        {
+            const TriangleData tri1 = ReadTriangleVerticesFromNode(currNodeAddr, header, prefixes, pairDesc, 1);
+            ComputeTriangleKDopOnly(laneGroupIndex, tri1);
+        }
+
+        if (Settings.maxPrimRangeSize > 2)
+        {
+            // Advance to the next triangle pair
+            endOfRange = (pairDesc.PrimRangeStopBit() != 0);
+
+            if (endOfRange == false)
+            {
+                // Primitive range continues
+                const uint trianglePairCount = header.TrianglePairCount();
+                if (currPairIdx == (trianglePairCount - 1))
+                {
+                    // this is the last triangle pair in node, continue in next node
+                    currNodeAddr += PRIMITIVE_STRUCT_SIZE_IN_BYTE;
+                    currPairIdx = 0;
+                }
+                else
+                {
+                    // Continue to next triangle pair in node
+                    currPairIdx++;
+                }
+            }
+        }
+    } while (endOfRange == false);
+}
+
+//=====================================================================================================================
 // Convert a given K-DOP to an OBB for a BVH8 box node. This is done by computing 6
 // apex points in run-time and projecting them to the best aligned OBB.
 BoundingBox ComputeBoxNodeOBB(
@@ -393,6 +531,83 @@ BoundingBox ComputeBoxNodeOBB(
     float2 boundsX = ComputeOBBBounds(currentObbKdopOffset, obbMatrix[0]);
     float2 boundsY = ComputeOBBBounds(currentObbKdopOffset, obbMatrix[1]);
     float2 boundsZ = ComputeOBBBounds(currentObbKdopOffset, obbMatrix[2]);
+    float3 p0 = float3(boundsX.x, boundsY.x, boundsZ.x);
+    float3 p1 = float3(boundsX.y, boundsY.y, boundsZ.y);
+
+    obbBbox.min = min(p0, p1);
+    obbBbox.max = max(p0, p1);
+
+    return obbBbox;
+}
+
+//=====================================================================================================================
+// ComputeOBBBounds's LDS version
+static float2 ComputeOBBBoundsInLDS(
+    in uint laneGroupIndex,
+    float3  basis)
+{
+    const uint apexPointIndex = FindApexPoint(basis);
+    const uint3 facet = GenerateKdopFacet(apexPointIndex);
+
+    const float3x3 normal = {
+        GenerateKdopVertex(facet.x),
+        GenerateKdopVertex(facet.y),
+        GenerateKdopVertex(facet.z)
+    };
+
+    float2 extentsX = { ReadKDopMin(laneGroupIndex, facet.x),  ReadKDopMax(laneGroupIndex, facet.x) };
+    if (facet.x % 2 == 1)
+    {
+        float mn = extentsX.x;
+        extentsX.x = extentsX.y;
+        extentsX.y = mn;
+        extentsX *= -1.0;
+    }
+    float2 extentsY = { ReadKDopMin(laneGroupIndex, facet.y),  ReadKDopMax(laneGroupIndex, facet.y) };
+    if (facet.y % 2 == 1)
+    {
+        float mn = extentsY.x;
+        extentsY.x = extentsY.y;
+        extentsY.y = mn;
+        extentsY *= -1.0;
+    }
+    float2 extentsZ = { ReadKDopMin(laneGroupIndex, facet.z),  ReadKDopMax(laneGroupIndex, facet.z) };
+    if (facet.z % 2 == 1)
+    {
+        float mn = extentsZ.x;
+        extentsZ.x = extentsZ.y;
+        extentsZ.y = mn;
+        extentsZ *= -1.0;
+    }
+
+    // Max plane
+    float3 kdopPlanes = float3(extentsX.y, extentsY.y, extentsZ.y);
+    float3 xpApex = GetApexPoint(normal, kdopPlanes);
+
+    // Min plane
+    kdopPlanes = float3(extentsX.x, extentsY.x, extentsZ.x);
+    float3 xnApex = GetApexPoint(-normal, kdopPlanes);
+
+    return float2(dot(xpApex, basis), dot(xnApex, -basis));
+}
+
+//=====================================================================================================================
+// In-SharedMemory Version of ComputeBoxNodeOBB
+BoundingBox ComputeBoxNodeOBBInLDS(
+    in uint laneGroupIndex,
+    in uint obbMatrixIndex)
+{
+    BoundingBox obbBbox;
+    // Get 3 closest directions to each OBB extent.
+    const float3x3 obbMatrix = OBBIndexToMatrix(obbMatrixIndex);
+
+    /**
+    * Our OBB Matrix has 6 facets that its basis vectors map to.
+    * We must find those 6 facets and each of their K-DOP extents.
+    */
+    float2 boundsX = ComputeOBBBoundsInLDS(laneGroupIndex, obbMatrix[0]);
+    float2 boundsY = ComputeOBBBoundsInLDS(laneGroupIndex, obbMatrix[1]);
+    float2 boundsZ = ComputeOBBBoundsInLDS(laneGroupIndex, obbMatrix[2]);
     float3 p0 = float3(boundsX.x, boundsY.x, boundsZ.x);
     float3 p1 = float3(boundsX.y, boundsY.y, boundsZ.y);
 
@@ -532,40 +747,112 @@ void RefitOrientedBoundsImpl(
         BoundingBox candidateObb = InvalidBoundingBox;
 #if UPDATE_BEST_CHILD_ORIENTATION
         float obbSASumMin = FLT_MAX;
+        //uint curNodeObbMatrixIndex = bestObbMatrixIndex;
 #endif
+#if UPDATE_BEST_CHILD_ORIENTATION
+		// Pre-Update KDOP in group shared memory mapped to the current lane group.
         if (isChildValid)
         {
-#if UPDATE_BEST_CHILD_ORIENTATION
-        [unroll]
-            for (uint i = 0; i < OBB_ROTATION_VARIATION_COUNT; i++)
+	        if (childIsLeaf)
+	        {
+                ComputePrimNodeKDopOnly(laneGroupIndex, childNodeType, childNodeOffset);
+	        }
+            else
             {
-                const uint rotatedMatrixIndex = Obb45DegRotLut[bestObbMatrixIndex][i];
-                BoundingBox tempCandidateObb = childIsLeaf ? ComputePrimNodeKDop(laneGroupIndex, childNodeType, childNodeOffset, bestObbMatrixIndex) : ComputeBoxNodeOBB(childKdopOfs, rotatedMatrixIndex);
-
-                // Add 6 ULP scaled to the longest extent of padding to OBB extents for watertightness:
-                const float3 extents = tempCandidateObb.max - tempCandidateObb.min;
-                const float longestExtent = abs(laneGroup.Max(max(extents.x, max(extents.y, extents.z))));
-                const float3 epsilonPadding = 7.15254e-7 * float3(longestExtent, longestExtent, longestExtent);
-                tempCandidateObb.min -= epsilonPadding;
-                tempCandidateObb.max += epsilonPadding;
-
-                const float obbSA = ComputeBoxSurfaceArea(tempCandidateObb);
-                const float obbSASum = laneGroup.Sum(obbSA);
-                if (obbSASum < obbSASumMin)
+                for (uint i = 0; i < KDOP_PLANE_COUNT; i++)
                 {
-                    candidateObb = tempCandidateObb;
-                    obbSASumMin = obbSASum;
-                    bestObbMatrixIndex = rotatedMatrixIndex;
+                    float2 extents = ScratchGlobal.Load<float2>(childKdopOfs + (i * sizeof(float2)));
+                    UpdateKDopMin(laneGroupIndex, i, extents.x);
+                    UpdateKDopMax(laneGroupIndex, i, extents.y);
                 }
             }
+        }
+        GroupMemoryBarrierWithGroupSync();
+			
+        const uint originalBestObbMatrixIndex = bestObbMatrixIndex;
+        uint rotatedMatrixIndex = Obb45DegRotLut[bestObbMatrixIndex][laneGroup.laneIndex];
+        // re-adjust orientation that making cur(children's parent) obb smallest
+        BoundingBox curCandidateObb = ComputeBoxNodeOBBInLDS(laneGroup.groupIndex, rotatedMatrixIndex);
+        const float curObbSA = ComputeBoxSurfaceArea(curCandidateObb);
+        const float minObbSA = laneGroup.Min(curObbSA);
+        uint minLane = laneGroup.GetFirstActiveLaneIndex(curObbSA == minObbSA);
+        bestObbMatrixIndex = laneGroup.Broadcast(rotatedMatrixIndex, minLane);
+
+        if (isChildValid)
+        {
+            if (childIsLeaf)
+            {
+                candidateObb = ComputePrimNodeOBB(childNodeType, childNodeOffset, bestObbMatrixIndex);
+            }
+            else
+            {
+                candidateObb = ComputeBoxNodeOBB(childKdopOfs, bestObbMatrixIndex);
+            }
+            // Add 6 ULP scaled to the longest extent of padding to OBB extents for watertightness:
+            const float3 extents = candidateObb.max - candidateObb.min;
+            const float longestExtent = abs(laneGroup.Max(max(extents.x, max(extents.y, extents.z))));
+            const float3 epsilonPadding = 7.15254e-7 * float3(longestExtent, longestExtent, longestExtent);
+            candidateObb.min -= epsilonPadding;
+            candidateObb.max += epsilonPadding;
+        }
+
+
+#pragma region Legacy
+        //[unroll]
+		//for (uint i = 0; i < OBB_ROTATION_VARIATION_COUNT; i++)
+		//{
+		//    const uint rotatedMatrixIndex = Obb45DegRotLut[originalBestObbMatrixIndex][i];
+		//    BoundingBox tempCandidateObb = InvalidBoundingBox;
+		//    if (isChildValid)
+		//    {
+		//        if (childIsLeaf)
+		//        {
+		//            tempCandidateObb = ComputePrimNodeKDop(laneGroupIndex, childNodeType, childNodeOffset, rotatedMatrixIndex);
+		//        }
+		//        else
+		//        {
+		//            tempCandidateObb = ComputeBoxNodeOBB(childKdopOfs, rotatedMatrixIndex);
+		//        }
+		//        // Add 6 ULP scaled to the longest extent of padding to OBB extents for watertightness:
+		//        const float3 extents = tempCandidateObb.max - tempCandidateObb.min;
+		//        const float longestExtent = abs(laneGroup.Max(max(extents.x, max(extents.y, extents.z))));
+		//        const float3 epsilonPadding = 7.15254e-7 * float3(longestExtent, longestExtent, longestExtent);
+		//        tempCandidateObb.min -= epsilonPadding;
+		//        tempCandidateObb.max += epsilonPadding;
+
+		//    }
+		//    const float obbSA = ComputeBoxSurfaceArea(tempCandidateObb);
+		//    const float obbSASum = laneGroup.Sum(obbSA);
+
+		//    if (obbSASum < obbSASumMin)
+		//    {
+		//        candidateObb = tempCandidateObb;
+		//        obbSASumMin = obbSASum;
+		//        bestObbMatrixIndex = rotatedMatrixIndex;
+		//    }
+		//}
+		//if (isChildValid && !childIsLeaf)
+		//{
+		//    // Update KDOP in group shared memory mapped to the current lane group.
+		//    for (uint i = 0; i < KDOP_PLANE_COUNT; i++)
+		//    {
+		//        float2 extents = ScratchGlobal.Load<float2>(childKdopOfs + (i * sizeof(float2)));
+		//        UpdateKDopMin(laneGroupIndex, i, extents.x);
+		//        UpdateKDopMax(laneGroupIndex, i, extents.y);
+		//    }
+		//}  
+#pragma endregion
+
 #else
+        if (isChildValid)
+        {
             if (childIsLeaf)
             {
                 candidateObb = ComputePrimNodeKDop(laneGroupIndex, childNodeType, childNodeOffset, bestObbMatrixIndex);
             }
             else
             {
-                candidateObb = ComputeBoxNodeOBB(childKdopOfs, bestObbMatrixIndex);
+                candidateObb = ComputeBoxNodeOBB(childKdopOfs, bestObbMatrixIndex);               
                 // Update KDOP in group shared memory mapped to the current lane group.
                 for (uint i = 0; i < KDOP_PLANE_COUNT; i++)
                 {
@@ -580,19 +867,19 @@ void RefitOrientedBoundsImpl(
             const float3 epsilonPadding = 7.15254e-7 * float3(longestExtent, longestExtent, longestExtent);
             candidateObb.min -= epsilonPadding;
             candidateObb.max += epsilonPadding;
-#endif
-
         }
-
+#endif
+        
         // Verify if OBB fits better than original AABBs.
         if (bestObbMatrixIndex != INVALID_OBB)
         {
 #if UPDATE_BEST_CHILD_ORIENTATION
-            const float obbSASum = childIsLeaf ? laneGroup.Sum(ComputeBoxSurfaceArea(candidateObb)) : obbSASumMin;
+            //const float obbSASum = obbSASumMin;
 #else
+#endif
             const float obbSA = ComputeBoxSurfaceArea(candidateObb);
             const float obbSASum = laneGroup.Sum(obbSA);
-#endif
+//#endif
 
             if (obbSASum >= (aabbSASum * OBB_SA_FACTOR_THRESHOLD))
             {
