@@ -738,18 +738,14 @@ void RefitOrientedBoundsImpl(
                 bestObbMatrixIndex = ScratchGlobal.Load<uint>(childKdopOfs + OBBKDOP_OBBMATRIX_INDEX_OFFSET);
             }
         }
-
-#undef UPDATE_BEST_CHILD_ORIENTATION
-#define UPDATE_BEST_CHILD_ORIENTATION 1
+#undef UPDATE_CUR_NODE_ORIENTATION
+#define UPDATE_CUR_NODE_ORIENTATION 1
         bestObbMatrixIndex = laneGroup.Broadcast(bestObbMatrixIndex, bestObbLaneIndex);
 
         // Compute candidate OBB for valid children.
         BoundingBox candidateObb = InvalidBoundingBox;
-#if UPDATE_BEST_CHILD_ORIENTATION
-        float obbSASumMin = FLT_MAX;
-        //uint curNodeObbMatrixIndex = bestObbMatrixIndex;
-#endif
-#if UPDATE_BEST_CHILD_ORIENTATION
+        uint curNodeObbMatrixIndex = bestObbMatrixIndex;
+#if UPDATE_CUR_NODE_ORIENTATION
 		// Pre-Update KDOP in group shared memory mapped to the current lane group.
         if (isChildValid)
         {
@@ -769,14 +765,14 @@ void RefitOrientedBoundsImpl(
         }
         GroupMemoryBarrierWithGroupSync();
 			
-        const uint originalBestObbMatrixIndex = bestObbMatrixIndex;
-        uint rotatedMatrixIndex = Obb45DegRotLut[bestObbMatrixIndex][laneGroup.laneIndex];
+        //const uint originalBestObbMatrixIndex = bestObbMatrixIndex;
+        uint rotatedMatrixIndex = Obb45DegRotLut[curNodeObbMatrixIndex][laneGroup.laneIndex];
         // re-adjust orientation that making cur(children's parent) obb smallest
         BoundingBox curCandidateObb = ComputeBoxNodeOBBInLDS(laneGroup.groupIndex, rotatedMatrixIndex);
         const float curObbSA = ComputeBoxSurfaceArea(curCandidateObb);
         const float minObbSA = laneGroup.Min(curObbSA);
         uint minLane = laneGroup.GetFirstActiveLaneIndex(curObbSA == minObbSA);
-        bestObbMatrixIndex = laneGroup.Broadcast(rotatedMatrixIndex, minLane);
+        curNodeObbMatrixIndex = laneGroup.Broadcast(rotatedMatrixIndex, minLane);
 
         if (isChildValid)
         {
@@ -795,54 +791,6 @@ void RefitOrientedBoundsImpl(
             candidateObb.min -= epsilonPadding;
             candidateObb.max += epsilonPadding;
         }
-
-
-#pragma region Legacy
-        //[unroll]
-		//for (uint i = 0; i < OBB_ROTATION_VARIATION_COUNT; i++)
-		//{
-		//    const uint rotatedMatrixIndex = Obb45DegRotLut[originalBestObbMatrixIndex][i];
-		//    BoundingBox tempCandidateObb = InvalidBoundingBox;
-		//    if (isChildValid)
-		//    {
-		//        if (childIsLeaf)
-		//        {
-		//            tempCandidateObb = ComputePrimNodeKDop(laneGroupIndex, childNodeType, childNodeOffset, rotatedMatrixIndex);
-		//        }
-		//        else
-		//        {
-		//            tempCandidateObb = ComputeBoxNodeOBB(childKdopOfs, rotatedMatrixIndex);
-		//        }
-		//        // Add 6 ULP scaled to the longest extent of padding to OBB extents for watertightness:
-		//        const float3 extents = tempCandidateObb.max - tempCandidateObb.min;
-		//        const float longestExtent = abs(laneGroup.Max(max(extents.x, max(extents.y, extents.z))));
-		//        const float3 epsilonPadding = 7.15254e-7 * float3(longestExtent, longestExtent, longestExtent);
-		//        tempCandidateObb.min -= epsilonPadding;
-		//        tempCandidateObb.max += epsilonPadding;
-
-		//    }
-		//    const float obbSA = ComputeBoxSurfaceArea(tempCandidateObb);
-		//    const float obbSASum = laneGroup.Sum(obbSA);
-
-		//    if (obbSASum < obbSASumMin)
-		//    {
-		//        candidateObb = tempCandidateObb;
-		//        obbSASumMin = obbSASum;
-		//        bestObbMatrixIndex = rotatedMatrixIndex;
-		//    }
-		//}
-		//if (isChildValid && !childIsLeaf)
-		//{
-		//    // Update KDOP in group shared memory mapped to the current lane group.
-		//    for (uint i = 0; i < KDOP_PLANE_COUNT; i++)
-		//    {
-		//        float2 extents = ScratchGlobal.Load<float2>(childKdopOfs + (i * sizeof(float2)));
-		//        UpdateKDopMin(laneGroupIndex, i, extents.x);
-		//        UpdateKDopMax(laneGroupIndex, i, extents.y);
-		//    }
-		//}  
-#pragma endregion
-
 #else
         if (isChildValid)
         {
@@ -873,14 +821,8 @@ void RefitOrientedBoundsImpl(
         // Verify if OBB fits better than original AABBs.
         if (bestObbMatrixIndex != INVALID_OBB)
         {
-#if UPDATE_BEST_CHILD_ORIENTATION
-            //const float obbSASum = obbSASumMin;
-#else
-#endif
             const float obbSA = ComputeBoxSurfaceArea(candidateObb);
             const float obbSASum = laneGroup.Sum(obbSA);
-//#endif
-
             if (obbSASum >= (aabbSASum * OBB_SA_FACTOR_THRESHOLD))
             {
                 bestObbMatrixIndex = INVALID_OBB;
@@ -933,7 +875,7 @@ void RefitOrientedBoundsImpl(
                                             float2(ReadKDopMin(laneGroupIndex, i), ReadKDopMax(laneGroupIndex, i)));
             }
 
-            ScratchGlobal.Store(curNodeKdopOfs + (KDOP_PLANE_COUNT * sizeof(float2)), bestObbMatrixIndex);
+            ScratchGlobal.Store(curNodeKdopOfs + (KDOP_PLANE_COUNT * sizeof(float2)), curNodeObbMatrixIndex);
         }
 
         // Continue up the tree
