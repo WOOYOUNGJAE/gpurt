@@ -746,39 +746,11 @@ void RefitOrientedBoundsImpl(
         BoundingBox candidateObb = InvalidBoundingBox;
         uint curNodeObbMatrixIndex = bestObbMatrixIndex;
 #if UPDATE_CUR_NODE_ORIENTATION
-		// Pre-Update KDOP in group shared memory mapped to the current lane group.
-        if (isChildValid)
-        {
-	        if (childIsLeaf)
-	        {
-                ComputePrimNodeKDopOnly(laneGroupIndex, childNodeType, childNodeOffset);
-	        }
-            else
-            {
-                for (uint i = 0; i < KDOP_PLANE_COUNT; i++)
-                {
-                    float2 extents = ScratchGlobal.Load<float2>(childKdopOfs + (i * sizeof(float2)));
-                    UpdateKDopMin(laneGroupIndex, i, extents.x);
-                    UpdateKDopMax(laneGroupIndex, i, extents.y);
-                }
-            }
-        }
-        GroupMemoryBarrierWithGroupSync();
-			
-        //const uint originalBestObbMatrixIndex = bestObbMatrixIndex;
-        uint rotatedMatrixIndex = Obb45DegRotLut[curNodeObbMatrixIndex][laneGroup.laneIndex];
-        // re-adjust orientation that making cur(children's parent) obb smallest
-        BoundingBox curCandidateObb = ComputeBoxNodeOBBInLDS(laneGroup.groupIndex, rotatedMatrixIndex);
-        const float curObbSA = ComputeBoxSurfaceArea(curCandidateObb);
-        const float minObbSA = laneGroup.Min(curObbSA);
-        uint minLane = laneGroup.GetFirstActiveLaneIndex(curObbSA == minObbSA);
-        curNodeObbMatrixIndex = laneGroup.Broadcast(rotatedMatrixIndex, minLane);
-
         if (isChildValid)
         {
             if (childIsLeaf)
             {
-                candidateObb = ComputePrimNodeOBB(childNodeType, childNodeOffset, bestObbMatrixIndex);
+                candidateObb = ComputePrimNodeKDop(childNodeType, childNodeOffset, bestObbMatrixIndex);
             }
             else
             {
@@ -865,6 +837,29 @@ void RefitOrientedBoundsImpl(
                 DstBuffer.Store<ChildInfo>(nodeOffset + GetChildInfoOffset(laneGroup.laneIndex), childInfo);
             }
         }
+
+#if UPDATE_CUR_NODE_ORIENTATION
+        // Pre-Update KDOP in group shared memory mapped to the current lane group.
+        if (isChildValid && !childIsLeaf)
+        {
+            for (uint i = 0; i < KDOP_PLANE_COUNT; i++)
+            {
+                float2 extents = ScratchGlobal.Load<float2>(childKdopOfs + (i * sizeof(float2)));
+                UpdateKDopMin(laneGroupIndex, i, extents.x);
+                UpdateKDopMax(laneGroupIndex, i, extents.y);
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        //const uint originalBestObbMatrixIndex = bestObbMatrixIndex;
+        uint rotatedMatrixIndex = Obb45DegRotLut[curNodeObbMatrixIndex][laneGroup.laneIndex];
+        // re-adjust orientation that making cur(children's parent) obb smallest
+        BoundingBox curCandidateObb = ComputeBoxNodeOBBInLDS(laneGroup.groupIndex, rotatedMatrixIndex);
+        const float curObbSA = ComputeBoxSurfaceArea(curCandidateObb);
+        const float minObbSA = laneGroup.Min(curObbSA);
+        uint minLane = laneGroup.GetFirstActiveLaneIndex(curObbSA == minObbSA);
+        curNodeObbMatrixIndex = laneGroup.Broadcast(rotatedMatrixIndex, minLane);
+#endif
 
         // Write K-DOPs for nodes up the tree
         if (laneGroup.IsFirstLane())
