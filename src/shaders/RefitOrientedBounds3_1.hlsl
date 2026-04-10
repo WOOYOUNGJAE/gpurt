@@ -55,6 +55,7 @@ void SetSharedMem(uint index, uint value)
 
 #endif
 
+#define  GPURT_BUILD_RTIP3_1 1
 #if GPURT_BUILD_RTIP3_1
 #include "rtip3_1.hlsli"
 #include "OrientedBoundingBoxes.hlsl"
@@ -741,29 +742,11 @@ void RefitOrientedBoundsImpl(
 #undef UPDATE_CUR_NODE_ORIENTATION
 #define UPDATE_CUR_NODE_ORIENTATION 1
         bestObbMatrixIndex = laneGroup.Broadcast(bestObbMatrixIndex, bestObbLaneIndex);
+        const uint originalBestObbMatrixIndex = bestObbMatrixIndex;
 
         // Compute candidate OBB for valid children.
         BoundingBox candidateObb = InvalidBoundingBox;
-        uint curNodeObbMatrixIndex = bestObbMatrixIndex;
-#if UPDATE_CUR_NODE_ORIENTATION
-        if (isChildValid)
-        {
-            if (childIsLeaf)
-            {
-                candidateObb = ComputePrimNodeKDop(childNodeType, childNodeOffset, bestObbMatrixIndex);
-            }
-            else
-            {
-                candidateObb = ComputeBoxNodeOBB(childKdopOfs, bestObbMatrixIndex);
-            }
-            // Add 6 ULP scaled to the longest extent of padding to OBB extents for watertightness:
-            const float3 extents = candidateObb.max - candidateObb.min;
-            const float longestExtent = abs(laneGroup.Max(max(extents.x, max(extents.y, extents.z))));
-            const float3 epsilonPadding = 7.15254e-7 * float3(longestExtent, longestExtent, longestExtent);
-            candidateObb.min -= epsilonPadding;
-            candidateObb.max += epsilonPadding;
-        }
-#else
+
         if (isChildValid)
         {
             if (childIsLeaf)
@@ -788,7 +771,6 @@ void RefitOrientedBoundsImpl(
             candidateObb.min -= epsilonPadding;
             candidateObb.max += epsilonPadding;
         }
-#endif
         
         // Verify if OBB fits better than original AABBs.
         if (bestObbMatrixIndex != INVALID_OBB)
@@ -839,26 +821,17 @@ void RefitOrientedBoundsImpl(
         }
 
 #if UPDATE_CUR_NODE_ORIENTATION
-        // Pre-Update KDOP in group shared memory mapped to the current lane group.
-        if (isChildValid && !childIsLeaf)
-        {
-            for (uint i = 0; i < KDOP_PLANE_COUNT; i++)
-            {
-                float2 extents = ScratchGlobal.Load<float2>(childKdopOfs + (i * sizeof(float2)));
-                UpdateKDopMin(laneGroupIndex, i, extents.x);
-                UpdateKDopMax(laneGroupIndex, i, extents.y);
-            }
-        }
         GroupMemoryBarrierWithGroupSync();
-
-        //const uint originalBestObbMatrixIndex = bestObbMatrixIndex;
-        uint rotatedMatrixIndex = Obb45DegRotLut[curNodeObbMatrixIndex][laneGroup.laneIndex];
-        // re-adjust orientation that making cur(children's parent) obb smallest
-        BoundingBox curCandidateObb = ComputeBoxNodeOBBInLDS(laneGroup.groupIndex, rotatedMatrixIndex);
-        const float curObbSA = ComputeBoxSurfaceArea(curCandidateObb);
-        const float minObbSA = laneGroup.Min(curObbSA);
-        uint minLane = laneGroup.GetFirstActiveLaneIndex(curObbSA == minObbSA);
-        curNodeObbMatrixIndex = laneGroup.Broadcast(rotatedMatrixIndex, minLane);
+        if (originalBestObbMatrixIndex != INVALID_OBB)
+        {
+            const uint rotatedMatrixIndex = Obb45DegRotLut[originalBestObbMatrixIndex][laneGroup.laneIndex];
+            // re-adjust orientation that making cur(children's parent) obb smallest
+            const BoundingBox curCandidateObb = ComputeBoxNodeOBBInLDS(laneGroup.groupIndex, rotatedMatrixIndex);
+            const float curObbSA = ComputeBoxSurfaceArea(curCandidateObb);
+            const float minObbSA = laneGroup.Min(curObbSA);
+            uint minLane = laneGroup.GetFirstActiveLaneIndex(curObbSA == minObbSA);
+            bestObbMatrixIndex = laneGroup.Broadcast(rotatedMatrixIndex, minLane);
+        }
 #endif
 
         // Write K-DOPs for nodes up the tree
@@ -870,7 +843,7 @@ void RefitOrientedBoundsImpl(
                                             float2(ReadKDopMin(laneGroupIndex, i), ReadKDopMax(laneGroupIndex, i)));
             }
 
-            ScratchGlobal.Store(curNodeKdopOfs + (KDOP_PLANE_COUNT * sizeof(float2)), curNodeObbMatrixIndex);
+            ScratchGlobal.Store(curNodeKdopOfs + (KDOP_PLANE_COUNT * sizeof(float2)), bestObbMatrixIndex);
         }
 
         // Continue up the tree
