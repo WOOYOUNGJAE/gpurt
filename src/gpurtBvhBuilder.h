@@ -443,6 +443,8 @@ private:
     bool AllowLatePairCompression() const;
     bool HasBuildDumpEvents() const;
 
+    void WriteInternalTimestamp();
+
     // Helper functions
     void Dispatch(
         uint32 numGroups);
