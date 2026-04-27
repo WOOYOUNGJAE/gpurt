@@ -30,6 +30,7 @@
 #include "gpurtInternalShaderBindings.h"
 #include "gpurt/gpurtBackend.h"
 #include "gpurt/gpurtInlineFuncs.h"
+#include "gpurtBvhBuilderCommon.h"
 
 #include "palCmdBuffer.h"
 #include "palInlineFuncs.h"
@@ -506,6 +507,137 @@ void Device::GetAccelStructPrebuildInfo(
                        deviceSettings);
 
     builder.GetAccelerationStructurePrebuildInfo(buildInfo, pPrebuildInfo);
+}
+// =====================================================================================================================
+void Device::PopulateAccelStructInternalPhaseProperties(
+    const AccelStructEnabledPhasesInfo& enabledPhasesInfo,
+    size_t                              propertiesStride,
+    size_t                              phaseNameStartOffset,
+    uint32*                             pPhaseCount,
+    void*                               pPhasePropertiesData)
+{
+    uint64 enabledInternalPhases = enabledPhasesInfo.enabledInternalPhases;
+    *pPhaseCount = Util::CountSetBits(enabledInternalPhases);
+
+    // If only the count was requested then we're done
+    if (pPhasePropertiesData == nullptr)
+    {
+        return;
+    }
+
+    char* pPhaseNameData = static_cast<char*>(pPhasePropertiesData) + phaseNameStartOffset;
+    if (enabledPhasesInfo.enabledPhaseMetaData.earlyEncodePrimitivesEnabled && Util::TestAnyFlagSet64(enabledInternalPhases, uint64(DetailedBuildPhaseFlags::EncodeQuadPrimitives)))
+    {
+        Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::EncodeQuadPrimitives), MaxBuildPhaseNameLength);
+        enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::EncodeQuadPrimitives);
+        pPhaseNameData += propertiesStride;
+    }
+
+    uint32 dbgCounter = 0;
+    while (enabledInternalPhases != 0 || dbgCounter++ < 100)
+    {
+        // 
+        if (Util::TestAnyFlagSet64(enabledInternalPhases, uint64(DetailedBuildPhaseFlags::EncodePrimitives)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::EncodePrimitives), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::EncodeQuadPrimitives);
+
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::BuildParallel)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::BuildParallel), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::BuildParallel);
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::Rebraid)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::Rebraid), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::Rebraid);
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::GenerateMortonCodes)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::GenerateMortonCodes), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::GenerateMortonCodes);
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::MergeSort)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::MergeSort), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::MergeSort);
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::RadixSort)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::RadixSort), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::RadixSort);
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::BuildFastAgglomerativeLbvh)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::BuildFastAgglomerativeLbvh), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::BuildFastAgglomerativeLbvh);
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::BuildHPLOC)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::BuildHPLOC), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::BuildHPLOC);
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::BuildPLOC)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::BuildPLOC), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::BuildPLOC);
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::PairCompression)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::PairCompression), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::PairCompression);
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::RefitInstanceBounds)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::RefitInstanceBounds), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::RefitInstanceBounds);
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::EncodeHwBvh)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::EncodeHwBvh), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::EncodeHwBvh);
+        }
+#if GPURT_BUILD_RTIP3_1
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::CompressPrims)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::CompressPrims), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::CompressPrims);
+        }
+        else if (Util::TestAnyFlagSet64(uint64(enabledInternalPhases), uint64(DetailedBuildPhaseFlags::RefitOrientedBounds)))
+        {
+            Util::Strncpy(pPhaseNameData, DetailedBuildPhaseName(DetailedBuildPhaseFlags::RefitOrientedBounds), MaxBuildPhaseNameLength);
+            enabledInternalPhases &= ~uint64(DetailedBuildPhaseFlags::RefitOrientedBounds);
+        }
+#endif
+
+        pPhaseNameData += propertiesStride;
+    }
+
+    PAL_ASSERT(enabledInternalPhases == 0);
+}
+
+// =====================================================================================================================
+void Device::GetAccelStructPrebuildInfos(
+    const AccelStructBuildInputs&           buildInfo,
+    AccelStructPrebuildInfo*                pPrebuildInfos,
+    AccelStructEnabledPhasesInfo*           pEnabledPhasesInfo)
+{
+    DeviceSettings deviceSettings;
+    ClientCallbacks clientCb = {};
+
+    SetUpClientCallbacks(&clientCb);
+
+    deviceSettings = m_info.deviceSettings;
+
+    BvhBuilder builder(nullptr,
+                       *m_pBackend,
+                       this,
+                       *m_info.pDeviceProperties,
+                       clientCb,
+                       deviceSettings);
+
+    builder.GetAccelerationStructurePrebuildInfos(buildInfo, pPrebuildInfos, pEnabledPhasesInfo);
 }
 
 // =====================================================================================================================

@@ -493,6 +493,19 @@ public:
 #endif
         override;
 
+    // Populates the properties of internal acceleration structure build phases that are currently enabled.
+    // @param enabledPhasesInfo [in] Information about which internal build phases are enabled and relevant meta data
+    // @param propertiesStride  [in] size of struct VkAccelerationStructureInternalPhasePropertiesSG
+    // @param phaseNameStartOffset [in] Offset of the phase name field within each phase property structure
+    // @param pPhaseCount       [out] Number of enabled internal build phases
+    // @param pPhasePropertiesData   [out] Pointer to an array of AccelStructInternalPhaseProperties structures to be populated by this function.
+    virtual void PopulateAccelStructInternalPhaseProperties(
+        const AccelStructEnabledPhasesInfo& enabledPhasesInfo,
+        size_t                              propertiesStride,
+        size_t                              phaseNameStartOffset,
+        uint32*                             pPhaseCount,
+        void*                               pPhasePropertiesData) override;
+
     // Calculates and returns prebuild information about some given future acceleration structure.
     //
     // @param inputs          [in]  Struct describing the inputs for building an acceleration structure
@@ -500,6 +513,15 @@ public:
     virtual void GetAccelStructPrebuildInfo(
         const AccelStructBuildInputs& inputs,
         AccelStructPrebuildInfo*      pPrebuildInfo) override;
+
+    // Calculates and returns prebuild information about some given future acceleration structure.
+    //
+    // @param inputs          [in]  Struct describing the inputs for building an acceleration structure
+    // @param pPrebuildInfo   [out] Resulting prebuild information
+    virtual void GetAccelStructPrebuildInfos(
+        const AccelStructBuildInputs&           buildInfo,
+        AccelStructPrebuildInfo*                pPrebuildInfos,
+        AccelStructEnabledPhasesInfo*           pEnabledPhasesInfo) override;
 
     // Decodes the acceleration structure memory and returns information about the built acceleration structure.
     // @param pAccelStructData [in]  CPU pointer to acceleration structure data

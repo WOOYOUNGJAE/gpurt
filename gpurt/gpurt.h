@@ -788,6 +788,18 @@ struct AccelStructPrebuildInfo
     uint32 maxPrimitiveCount;             // Max primitive count
 };
 
+struct AccelStructEnabledPhaseMetaData
+{
+    uint32 earlyEncodePrimitivesEnabled : 1;
+};
+
+// Similar to AccelStructPrebuildInfo, but stores whether each phase is executed.
+struct AccelStructEnabledPhasesInfo
+{
+    uint64 enabledInternalPhases; // Matches with DetailedBuildPhaseFlags at gpurtBvhBuilderCommon.h
+    AccelStructEnabledPhaseMetaData enabledPhaseMetaData;
+};
+
 // Device - wide settings for GPURT
 struct DeviceSettings
 {
@@ -1705,6 +1717,19 @@ public:
 #endif
          = 0;
 
+    // Populates the properties of internal acceleration structure build phases that are currently enabled.
+    // @param enabledPhasesInfo [in] Information about which internal build phases are enabled and relevant meta data
+    // @param propertiesStride  [in] size of struct VkAccelerationStructureInternalPhasePropertiesSG
+    // @param phaseNameStartOffset [in] Offset of the phase name field within each phase property structure
+    // @param pPhaseCount       [out] Number of enabled internal build phases
+    // @param pPhasePropertiesData   [out] Pointer to an array of AccelStructInternalPhaseProperties structures to be populated by this function.
+    virtual void PopulateAccelStructInternalPhaseProperties(
+        const AccelStructEnabledPhasesInfo& enabledPhasesInfo,
+        size_t                              propertiesStride,
+        size_t                              phaseNameStartOffset,
+        uint32*                             pPhaseCount,
+        void*                               pPhasePropertiesData) = 0;
+
     // Calculates and returns prebuild information about some given future acceleration structure.
     //
     // @param inputs          [in]  Struct describing the inputs for building an acceleration structure
@@ -1712,6 +1737,15 @@ public:
     virtual void GetAccelStructPrebuildInfo(
         const AccelStructBuildInputs& inputs,
         AccelStructPrebuildInfo*      pPrebuildInfo) = 0;
+
+    // Calculates and returns prebuild information about some given future acceleration structure.
+    //
+    // @param inputs          [in]  Struct describing the inputs for building an acceleration structure
+    // @param pPrebuildInfo   [out] Resulting prebuild information
+    virtual void GetAccelStructPrebuildInfos(
+        const AccelStructBuildInputs&           buildInfo,
+        AccelStructPrebuildInfo*                pPrebuildInfos,
+        AccelStructEnabledPhasesInfo*           pEnabledPhasesInfo) = 0;
 
     // Decodes the acceleration structure memory and returns information about the built acceleration structure.
     // @param pAccelStructData [in]  CPU pointer to acceleration structure data

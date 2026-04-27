@@ -393,6 +393,13 @@ void BvhBatcher::BuildMultiDispatch(Util::Span<BvhBuilder> builders)
         }
         else
         {
+            // INTERNAL_TIMESTAMP_BEGIN
+            Barrier();
+            for (auto& builder : builders)
+            {
+                builder.WriteInternalTimestamp();
+            }
+
             RGP_PUSH_MARKER("Merge Sort");
 
             // Batch local sorts together.
@@ -447,14 +454,35 @@ void BvhBatcher::BuildMultiDispatch(Util::Span<BvhBuilder> builders)
             }
 
             RGP_POP_MARKER();
+
+            // INTERNAL_TIMESTAMP_END
+            Barrier();
+            for (auto& builder : builders)
+            {
+                builder.WriteInternalTimestamp();
+            }
         }
     }
     if (PhaseEnabled(BuildPhaseFlags::RadixSort))
     {
+        // INTERNAL_TIMESTAMP_BEGIN
+        Barrier();
+        for (auto& builder : builders)
+        {
+            builder.WriteInternalTimestamp();
+        }
+
         Barrier();
         RGP_PUSH_MARKER("Radix Sort");
         RadixSort(builders);
         RGP_POP_MARKER();
+
+        // INTERNAL_TIMESTAMP_END
+        Barrier();
+        for (auto& builder : builders)
+        {
+            builder.WriteInternalTimestamp();
+        }
     }
     if (PhaseEnabled(BuildPhaseFlags::BuildFastAgglomerativeLbvh))
     {
@@ -468,12 +496,26 @@ void BvhBatcher::BuildMultiDispatch(Util::Span<BvhBuilder> builders)
     }
     if (PhaseEnabled(BuildPhaseFlags::BuildPLOC))
     {
+        // INTERNAL_TIMESTAMP_BEGIN
+        Barrier();
+        for (auto& builder : builders)
+        {
+            builder.WriteInternalTimestamp();
+        }
+
         Barrier();
         const uint32 wavesPerSimd = builders.size() == 1 ? 8U : 1U;
         BuildFunction(BuildPhaseFlags::BuildPLOC, builders, [wavesPerSimd](BvhBuilder& builder)
         {
             builder.BuildPLOC(wavesPerSimd);
         });
+
+        // INTERNAL_TIMESTAMP_END
+        Barrier();
+        for (auto& builder : builders)
+        {
+            builder.WriteInternalTimestamp();
+        }
     }
     if (PhaseEnabled(BuildPhaseFlags::PairCompression))
     {

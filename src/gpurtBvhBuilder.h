@@ -149,6 +149,11 @@ public:
     void GetAccelerationStructurePrebuildInfo(
         const AccelStructBuildInputs& buildInfo,
         AccelStructPrebuildInfo*      pPrebuildInfo);
+        
+    void GetAccelerationStructurePrebuildInfos(
+        const AccelStructBuildInputs&           buildInfo,
+        AccelStructPrebuildInfo*                pPrebuildInfos,
+        AccelStructEnabledPhasesInfo*           pEnabledPhasesInfo);
 
     // Performs a barrier that synchronizes any active BVH builder operations.
     void Barrier(uint32 flags = BarrierFlagSyncDispatch);
