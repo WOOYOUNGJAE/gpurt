@@ -124,6 +124,12 @@ const PipelineBuildInfo InternalPipelineBuildInfo[size_t(InternalRayTracingCsTyp
 #endif
     PIPELINE_BUILD_INFO(EncodeDGF),
     PIPELINE_BUILD_INFO(PrepareShadowSbtForReplay),
+    PIPELINE_BUILD_BVH_INFO(InitGHistogram),
+    PIPELINE_BUILD_BVH_INFO(GHistogram30),
+    PIPELINE_BUILD_BVH_INFO(GHistogram60),
+    PIPELINE_BUILD_BVH_INFO(InitOnesweepReorder),
+    PIPELINE_BUILD_BVH_INFO(OnesweepReorder30),
+    PIPELINE_BUILD_BVH_INFO(OnesweepReorder60),
 };
 
 #undef PIPELINE_BUILD_INFO

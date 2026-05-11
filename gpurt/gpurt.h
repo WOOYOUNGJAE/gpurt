@@ -370,6 +370,12 @@ enum class InternalRayTracingCsType : uint32
 #endif
     EncodeDGF,
     PrepareShadowSbtForReplay,
+    InitGHistogram,
+    GHistogram30,
+    GHistogram60,
+    InitOnesweepReorder,
+    OnesweepReorder30,
+    OnesweepReorder60,
     Count
 };
 

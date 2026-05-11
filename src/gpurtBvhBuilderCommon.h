@@ -48,7 +48,7 @@ enum class BuildPhaseFlags : uint32_t
     GenerateMortonCodes           = 1 << 3,
     MergeSort                     = 1 << 4,
     RadixSort                     = 1 << 5,
-    // Unused6                    = 1 << 6,
+    OnesweepRadixSort             = 1 << 6,
     BuildPLOC                     = 1 << 7,
     // Unused8                    = 1 << 8,
     PairCompression               = 1 << 9,
@@ -82,6 +82,8 @@ static const char* BuildPhaseName(BuildPhaseFlags phase)
         return "MergeSort";
     case GpuRt::BuildPhaseFlags::RadixSort:
         return "RadixSort";
+    case GpuRt::BuildPhaseFlags::OnesweepRadixSort:
+        return "OnesweepRadixSort";
     case GpuRt::BuildPhaseFlags::BuildPLOC:
         return "BuildPLOC";
     case GpuRt::BuildPhaseFlags::PairCompression:

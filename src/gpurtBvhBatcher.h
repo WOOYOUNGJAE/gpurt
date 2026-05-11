@@ -54,6 +54,9 @@ public:
     void RadixSort(
         Util::Span<BvhBuilder> builders);
 
+    void OnesweepRadixSort(
+        Util::Span<BvhBuilder> builders);
+
     void UpdateEnabledPhaseFlags(
         BuildPhaseFlags builderPhaseFlags);
 

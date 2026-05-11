@@ -35,6 +35,9 @@ set(gpurtHlsl
     RadixSort/ScanExclusiveInt4DLBCommon.hlsl
     RadixSort/ScanExclusivePartInt4.hlsl
     RadixSort/ScatterKeysAndValues.hlsl
+    OnesweepRadixSort/GHistogram.hlsl
+    OnesweepRadixSort/OnesweepCommon.hlsli
+    OnesweepRadixSort/OnesweepReorder.hlsl
     IndirectArgBufferUtils.hlsl
     AccelStructTracker.hlsl
     ../shadersClean/build/BuildRootSignature.hlsli

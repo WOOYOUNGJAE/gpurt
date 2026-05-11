@@ -210,6 +210,39 @@ static RadixSortConfig GetRadixSortConfig(
     return config;
 }
 
+
+struct OnesweepRadixSortConfig
+{
+	uint32 workGroupSizeHistogram;
+    uint32 workGroupSizeReorder;
+    uint32 keysPerBlockHistogram;
+    uint32 keysPerBlockReorder;
+    uint32 bitsPerPass;
+	uint32 numBins;
+	uint32 numPasses30;
+	uint32 numPasses60;
+};
+
+// =====================================================================================================================
+// Calculate onesweep radix sort configuration constants for the provided build configuration.
+// Note: These configurations should be managed with macros in OnesweepCommon.hlsli.
+static OnesweepRadixSortConfig GetOnesweepRadixSortConfig(
+    const DeviceSettings& deviceSettings)
+{
+    OnesweepRadixSortConfig config = {};
+
+    config.workGroupSizeHistogram = 256;
+    config.workGroupSizeReorder = 256;
+    config.workGroupSizeHistogram = 2048;
+    config.keysPerBlockReorder = 4096;
+    config.bitsPerPass = 8;
+	config.numBins = 1 << config.bitsPerPass;
+	config.numPasses30 = 32 / config.bitsPerPass;
+	config.numPasses60 = 64 / config.bitsPerPass;
+
+    return config;
+}
+
 #pragma pack(push, 4)
 struct RayHistoryMetadata
 {

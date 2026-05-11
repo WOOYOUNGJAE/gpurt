@@ -544,6 +544,7 @@ BvhBuilder::BvhBuilder(
     m_geomConstSrdTable(0ull),
     m_geomBufferSrdTable(0ull),
     m_radixSortConfig(GetRadixSortConfig(deviceSettings)),
+	m_onesweepRadixSortConfig(GetOnesweepRadixSortConfig(deviceSettings)),
     m_emitCompactDstGpuVa(0ull),
     m_buildSettingsHash(0u),
     m_resultBufferInfo({}),
@@ -589,6 +590,7 @@ BvhBuilder::BvhBuilder(
     m_geomConstSrdTable(0ull),
     m_geomBufferSrdTable(0ull),
     m_radixSortConfig(GetRadixSortConfig(deviceSettings)),
+    m_onesweepRadixSortConfig(GetOnesweepRadixSortConfig(deviceSettings)),
     m_emitCompactDstGpuVa(0ull),
     m_buildSettingsHash(0u),
     m_resultBufferInfo({}),
@@ -1148,6 +1150,7 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     uint32 mortonCodesSorted = 0xFFFFFFFF;
     uint32 primIndicesSortedSwap = 0xFFFFFFFF;
     uint32 histogram = 0xFFFFFFFF;
+	uint32 histogramTaskCounter = 0xFFFFFFFF;
     uint32 tempKeys = 0xFFFFFFFF;
     uint32 tempVals = 0xFFFFFFFF;
     uint32 atomicFlags = 0xFFFFFFFF;
@@ -1422,7 +1425,30 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     {
         primIndicesSortedSwap = ReserveBytes(aabbCount * sizeof(uint32), &runningOffset);
     }
-    // Radix Sort
+    //Onesweep Radix Sort
+    else if (m_buildConfig.enableOnesweepRadixSort)
+    {
+		// device histograms buffer (int)
+        const uint32 numPasses = m_deviceSettings.enableMortonCode30 ? m_onesweepRadixSortConfig.numPasses30 : m_onesweepRadixSortConfig.numPasses60;
+		const uint32 numHistogramElements = numPasses * m_onesweepRadixSortConfig.numBins;
+        histogram = ReserveBytes(numHistogramElements * sizeof(uint32), &runningOffset);
+       
+        // device temp keys buffer (int)
+        tempKeys = ReserveBytes(aabbCount * dataSize, &runningOffset);
+
+        // device temp vals buffer (int)
+        tempVals = ReserveBytes(aabbCount * sizeof(uint32), &runningOffset);
+
+        // device lookback buffer (int)
+        const uint32 numBlocks = (aabbCount + m_onesweepRadixSortConfig.keysPerBlockReorder - 1) / 
+                                 m_onesweepRadixSortConfig.keysPerBlockReorder;
+		const uint32 numDynamicBlocks = numBlocks * m_onesweepRadixSortConfig.numBins;
+		atomicFlags = ReserveBytes(numDynamicBlocks * sizeof(uint32), &runningOffset);
+        
+        // device histogram task counter (int)
+        histogramTaskCounter = ReserveBytes(sizeof(uint32), &runningOffset);
+    }
+    // Reduce-Then-Scan Radix Sort
     else
     {
         // Radix sort temporary buffers
@@ -1506,6 +1532,7 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
         pOffsets->primIndicesSortedSwap = primIndicesSortedSwap;
         pOffsets->propagationFlags = propagationFlags;
         pOffsets->histogram = histogram;
+		pOffsets->histogramTaskCounter = histogramTaskCounter;
         pOffsets->tempKeys = tempKeys;
         pOffsets->tempVals = tempVals;
         pOffsets->dynamicBlockIndex = dynamicBlockIndex;
@@ -1775,7 +1802,7 @@ void BvhBuilder::InitBuildConfig(
     }
 
     // Merge sort outperforms Radix sort in most cases in the batched builder
-    bool forceMergeSort = m_deviceSettings.enableParallelBuild == false;
+    bool forceMergeSort = false;
     if (m_deviceSettings.enableParallelBuild)
     {
         // Merge sort outperforms Radix sort for small BVH builds in the parallel builder
@@ -1783,6 +1810,9 @@ void BvhBuilder::InitBuildConfig(
         forceMergeSort = m_buildConfig.numPrimitives <= MergeSortThreshold;
     }
     m_buildConfig.enableMergeSort = forceMergeSort ? true : m_deviceSettings.enableMergeSort;
+    // Onesweep radix sort is not supported in the parallel builder
+    // Onesweep radix sort outperforms reduce-then-scan radix sort in the batched builder
+    m_buildConfig.enableOnesweepRadixSort = (m_deviceSettings.enableParallelBuild || m_buildConfig.enableMergeSort) ? false : true;
 
     m_buildConfig.radixSortScanLevel = 0;
     m_buildConfig.numHistogramElements = GetNumHistogramElements(m_radixSortConfig, m_buildConfig.maxNumPrimitives);
@@ -3904,6 +3934,10 @@ BuildPhaseFlags BvhBuilder::EnabledPhases() const
             {
                 flags |= BuildPhaseFlags::MergeSort;
             }
+            else if (m_buildConfig.enableOnesweepRadixSort)
+            {
+				flags |= BuildPhaseFlags::OnesweepRadixSort;
+            }
             else
             {
                 flags |= BuildPhaseFlags::RadixSort;
@@ -5038,6 +5072,92 @@ void BvhBuilder::ScanExclusiveAddDLBScan(
     WriteBuildBufferBindings(shaderConstants);
 
     RGP_PUSH_MARKER("Scan Exclusive Int 4 DLB");
+    Dispatch(numBlocks);
+
+    RGP_POP_MARKER();
+}
+
+// =====================================================================================================================
+// Executes the GHistogram initialize pass for onesweep radix sort
+void BvhBuilder::InitGHistogram()
+{
+    BindPipeline(InternalRayTracingCsType::InitGHistogram);
+
+    const uint32 numPasses = 
+        m_deviceSettings.enableMortonCode30 ? m_onesweepRadixSortConfig.numPasses30 : m_onesweepRadixSortConfig.numPasses60;
+    const uint numHistogramElements = numPasses * m_onesweepRadixSortConfig.numBins;
+    const uint32 numBlocks = Util::RoundUpQuotient(numHistogramElements, workGroupSizeHistogram);
+
+    WriteBuildBufferBindings();
+
+    RGP_PUSH_MARKER("Init GHistogram");
+    Dispatch(numBlocks);
+
+    RGP_POP_MARKER();
+}
+
+// =====================================================================================================================
+// Executes the GHistogram pass for onesweep radix sort
+void BvhBuilder::GHistogram()
+{
+    InternalRayTracingCsType pipelineType = m_deviceSettings.enableMortonCode30 ? 
+                                            InternalRayTracingCsType::GHistogram30 :
+                                            InternalRayTracingCsType::GHistogram60;
+    BindPipeline(pipelineType);
+    
+    // Note: Maximum waves per simd = 16
+    const uint wavesPerSimd = 16;
+    const uint numOptimalGroups = 
+        m_backend.GetOptimalNumThreadGroups(m_onesweepRadixSortConfig.workGroupSizeHistogram) * wavesPerSimd;
+    const uint numDataGroups = 
+        Util::RoundUpQuotient(m_buildConfig.maxNumPrimitives, m_onesweepRadixSortConfig.keysPerBlockHistogram);
+
+    WriteBuildBufferBindings();
+
+    RGP_PUSH_MARKER("GHistogram");
+    Dispatch(Util::Min(numOptimalGroups, numDataGroups));
+
+    RGP_POP_MARKER();
+}
+
+// =====================================================================================================================
+// Executes the onesweep reorder initialize pass
+void BvhBuilder::InitOnesweepReorder()
+{
+    BindPipeline(InternalRayTracingCsType::InitOnesweepReorder);
+
+    const uint32 numBlocks = 
+        Util::RoundUpQuotient(m_buildConfig.maxNumPrimitives, m_onesweepRadixSortConfig.keysPerBlockReorder);
+	const uint32 numDynamicBlocks = numBlocks * m_onesweepRadixSortConfig.numBins;
+
+    WriteBuildBufferBindings();
+
+    RGP_PUSH_MARKER("Init Onesweep Reorder");
+    Dispatch(Util::RoundUpQuotient(numDynamicBlocks, m_onesweepRadixSortConfig.workGroupSizeReorder));
+
+    RGP_POP_MARKER();
+}
+
+// =====================================================================================================================
+// Executes the onesweep reorder pass
+void BvhBuilder::OnesweepReorder(uint32 passIdx)
+{
+    InternalRayTracingCsType pipelineType = m_deviceSettings.enableMortonCode30 ? 
+                                            InternalRayTracingCsType::OnesweepReorder30 :
+                                            InternalRayTracingCsType::OnesweepReorder60;
+    BindPipeline(pipelineType);
+
+    const uint32 numBlocks = 
+        Util::RoundUpQuotient(m_buildConfig.maxNumPrimitives, m_onesweepRadixSortConfig.keysPerBlockReorder);
+
+    BuildShaderRootConstants1 shaderConstants =
+    {
+        .passIndex = passIdx
+    };
+
+    WriteBuildBufferBindings(shaderConstants);
+
+    RGP_PUSH_MARKER("Onesweep Reorder");
     Dispatch(numBlocks);
 
     RGP_POP_MARKER();

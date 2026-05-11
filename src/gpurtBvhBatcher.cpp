@@ -449,6 +449,13 @@ void BvhBatcher::BuildMultiDispatch(Util::Span<BvhBuilder> builders)
             RGP_POP_MARKER();
         }
     }
+    if (PhaseEnabled(BuildPhaseFlags::OnesweepRadixSort))
+    {
+        Barrier();
+        RGP_PUSH_MARKER("Onesweep Radix Sort");
+        OnesweepRadixSort(builders);
+        RGP_POP_MARKER();
+    }
     if (PhaseEnabled(BuildPhaseFlags::RadixSort))
     {
         Barrier();
@@ -893,6 +900,49 @@ void BvhBatcher::RadixSort(Util::Span<BvhBuilder> builders)
         }
 
         bitShiftSize += radixSortConfig.bitsPerPass;
+    }
+}
+
+// =====================================================================================================================
+// Executes all passes of OnesweepRadixSort for each builder in the batch
+void BvhBatcher::OnesweepRadixSort(Util::Span<BvhBuilder> builders)
+{
+    const auto& onesweepRadixSortConfig = builders[0].m_onesweepRadixSortConfig;
+    const uint32 numPasses = 
+        m_deviceSettings.enableMortonCode30 ? onesweepRadixSortConfig.numPasses30 : onesweepRadixSortConfig.numPasses60;
+
+    BuildFunction("InitGHistogram", builders, [&](BvhBuilder& builder)
+    {
+        builder.InitGHistogram();
+    });
+
+    Barrier();
+
+    BuildFunction("GHistogram", builders, [&](BvhBuilder& builder)
+    {
+        builder.GHistogram();
+    });
+
+    Barrier();
+    
+    for (uint32 passIndex = 0; passIndex < numPasses; ++passIndex)
+    {
+        BuildFunction("InitOnesweepReorder", builders, [&](BvhBuilder& builder)
+        {
+            builder.InitOnesweepReorder();
+        });
+
+        Barrier();
+
+        BuildFunction("OnesweepReorder", builders, [&](BvhBuilder& builder)
+        {
+            builder.OnesweepReorder(passIdx);
+        });
+
+        if ((passIndex + 1) < numPasses)
+        {
+            Barrier();
+        }
     }
 }
 

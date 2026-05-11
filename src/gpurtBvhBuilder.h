@@ -235,6 +235,7 @@ private:
         bool                            needEncodeDispatch;
         bool                            enableEarlyPairCompression;
         bool                            enableMergeSort;
+        bool                            enableOnesweepRadixSort;
         bool                            enableInstanceRebraid;
 #if GPURT_BUILD_RTIP3_1
         bool                            enableCompressPrimsPass;
@@ -438,6 +439,12 @@ private:
     void ScanExclusiveAddDLBInit();
     void ScanExclusiveAddDLBScan(uint32 passIdx);
 
+    // Onesweep radix sort functions
+    void InitGHistogram();
+    void GHistogram();
+    void InitOnesweepReorder();
+    void OnesweepReorder(uint32 passIdx);
+
     // Optional phase checks
     bool AllowRebraid() const;
     bool AllowLatePairCompression() const;
@@ -586,6 +593,7 @@ private:
     gpusize                           m_geomConstSrdTable{};
     gpusize                           m_geomBufferSrdTable{};
     const RadixSortConfig             m_radixSortConfig;
+	const OnesweepRadixSortConfig     m_onesweepRadixSortConfig;
     uint64                            m_emitCompactDstGpuVa;
     uint32                            m_buildSettingsHash;
     ResultBufferInfo                  m_resultBufferInfo;
