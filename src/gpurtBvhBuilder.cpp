@@ -5086,7 +5086,8 @@ void BvhBuilder::InitGHistogram()
     const uint32 numPasses = 
         m_deviceSettings.enableMortonCode30 ? m_onesweepRadixSortConfig.numPasses30 : m_onesweepRadixSortConfig.numPasses60;
     const uint numHistogramElements = numPasses * m_onesweepRadixSortConfig.numBins;
-    const uint32 numBlocks = Util::RoundUpQuotient(numHistogramElements, workGroupSizeHistogram);
+    const uint32 numBlocks = 
+        Util::RoundUpQuotient(numHistogramElements, m_onesweepRadixSortConfig.workGroupSizeHistogram);
 
     WriteBuildBufferBindings();
 

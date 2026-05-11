@@ -936,7 +936,7 @@ void BvhBatcher::OnesweepRadixSort(Util::Span<BvhBuilder> builders)
 
         BuildFunction("OnesweepReorder", builders, [&](BvhBuilder& builder)
         {
-            builder.OnesweepReorder(passIdx);
+            builder.OnesweepReorder(passIndex);
         });
 
         if ((passIndex + 1) < numPasses)

@@ -106,6 +106,7 @@ void GHistogramImpl(
                 for (uint i = 0; i < N_ITERATION; i++)
                 {
                     uint bitLocation = i * N_RADIX;
+                    uint bits = extractDigit(getKeyBits(item), bitLocation);
                     InterlockedAdd(localCounters[i][bits], 1);
                 }
             }

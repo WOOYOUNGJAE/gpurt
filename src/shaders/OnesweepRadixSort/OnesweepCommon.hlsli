@@ -7,7 +7,7 @@
 // Note: These configurations should be managed with gpurtInternal.h::GetOnesweepRadixSortConfig().
 #define N_RADIX (8)
 #define BIN_SIZE (1 << N_RADIX)
-#define RADIX_MAXK ((1 << N_RADIX) - 1)
+#define RADIX_MASK ((1 << N_RADIX) - 1)
 
 #if USE_MORTON_CODE_30
     typedef uint RADIX_SORT_KEY_TYPE;
