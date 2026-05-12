@@ -861,6 +861,7 @@ struct DeviceSettings
         uint32 enableInsertBarriersInBuildAS : 1;
         uint32 enablePairCompressionCostCheck : 1;
         uint32 enableMergeSort : 1;
+        uint32 enableOnesweepRadixSort : 1;
 #if GPURT_CLIENT_INTERFACE_MAJOR_VERSION < 45
         uint32 bvhCollapse : 1;                             // Collapse individual geometry leaf nodes into multi-geometry leaves
 #endif

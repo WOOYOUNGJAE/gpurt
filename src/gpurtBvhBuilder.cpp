@@ -1801,7 +1801,6 @@ void BvhBuilder::InitBuildConfig(
         m_buildConfig.maxNumPrimitives *= m_buildConfig.rebraidFactor;
     }
 
-    // Merge sort outperforms Radix sort in most cases in the batched builder
     bool forceMergeSort = false;
     if (m_deviceSettings.enableParallelBuild)
     {
@@ -1810,9 +1809,13 @@ void BvhBuilder::InitBuildConfig(
         forceMergeSort = m_buildConfig.numPrimitives <= MergeSortThreshold;
     }
     m_buildConfig.enableMergeSort = forceMergeSort ? true : m_deviceSettings.enableMergeSort;
-    // Onesweep radix sort is not supported in the parallel builder
-    // Onesweep radix sort outperforms reduce-then-scan radix sort in the batched builder
-    m_buildConfig.enableOnesweepRadixSort = (m_deviceSettings.enableParallelBuild || m_buildConfig.enableMergeSort) ? false : true;
+
+    // Onesweep Radix sort is not supported in the parallel builder
+    if (m_deviceSettings.enableOnesweepRadixSort && m_deviceSettings.enableParallelBuild == false)
+    {
+        m_buildConfig.enableOnesweepRadixSort = true;
+        m_buildConfig.enableMergeSort = false;
+    }
 
     m_buildConfig.radixSortScanLevel = 0;
     m_buildConfig.numHistogramElements = GetNumHistogramElements(m_radixSortConfig, m_buildConfig.maxNumPrimitives);
@@ -2762,6 +2765,10 @@ void BvhBuilder::OutputBuildInfo()
     {
         Util::Strncat(buildShaderInfo, MaxInfoStrLength, ", MergeSort");
     }
+    else if (m_buildConfig.enableOnesweepRadixSort)
+    {
+        Util::Strncat(buildShaderInfo, MaxInfoStrLength, ", RadixSort:Onesweep");
+    }
     else
     {
         char infoString[MaxInfoStrLength];
@@ -2802,6 +2809,18 @@ void BvhBuilder::OutputBuildInfo()
         Util::Strncat(buildShaderInfo, MaxInfoStrLength, infoString);
     }
 #endif
+
+#define SG_PRINT_BLAS_SETTING_ONCE 1
+#if SG_PRINT_BLAS_SETTING_ONCE
+    static bool printed = false;
+    if (!printed)
+    {
+        printed = true;
+        printf("%s\n", buildShaderInfo);
+    }
+#endif
+#undef SG_PRINT_BLAS_SETTING_ONCE
+
     m_backend.CommentString(m_cmdBuffer, buildShaderInfo);
 }
 
