@@ -223,7 +223,11 @@ void OnesweepReorderImpl(
     uint bitLocation = N_RADIX * iteration;
     uint numberOfBlocks = RoundUpQuotient(numElements, RADIX_SORT_BLOCK_SIZE);
 
-    // Clear LDS
+    // Early termination
+    // Handle mismatch between dispatched threads and active primitives caused by early pair compression. 
+    // (Note: Can also be resolved via Indirect Dispatch)
+    if(groupId >= numberOfBlocks) return;
+
     for (uint i = 0; i < BIN_SIZE * REORDER_NUMBER_OF_WARPS; i += REORDER_NUMBER_OF_THREADS_PER_BLOCK) {
         SetLDSPhase1LpSum(i + localId, (uint16_t)0);
     }
