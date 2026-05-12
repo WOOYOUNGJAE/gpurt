@@ -171,36 +171,37 @@ void InitOnesweepReorderImpl(
     }
 }
 
-uint16_t ScanExclusiveBlockHistogram(uint16_t prefix, uint localId)
+uint16_t ScanExclusiveBlockHistogram(uint16_t prefix, uint start, uint localId, uint nElements)
 {
-    bool active = localId < BIN_SIZE;
-    uint16_t value = active ? GetLDSPhase1BlockHistogram(localId) : (uint16_t)0;
+    bool active = localId < nElements;
+    uint idx = start + localId;
+    uint16_t value = active ? GetLDSPhase1BlockHistogram(idx) : (uint16_t)0;
     uint16_t x = value;
 
-    for (uint offset = 1; offset < BIN_SIZE; offset <<= 1)
+    for (uint offset = 1; offset < nElements; offset <<= 1)
     {
         if (active && offset <= localId)
         {
-            x += GetLDSPhase1BlockHistogram(localId - offset);
+            x += GetLDSPhase1BlockHistogram(idx - offset);
         }
 
         GroupMemoryBarrierWithGroupSync();
 
         if (active)
         {
-            SetLDSPhase1BlockHistogram(localId, x);
+            SetLDSPhase1BlockHistogram(idx, x);
         }
 
         GroupMemoryBarrierWithGroupSync();
     }
 
-    uint16_t sum = GetLDSPhase1BlockHistogram(BIN_SIZE - 1);
+    uint16_t sum = GetLDSPhase1BlockHistogram(start + nElements - 1);
 
     GroupMemoryBarrierWithGroupSync();
 
     if (active)
     {
-        SetLDSPhase1BlockHistogram(localId, x + prefix - value);
+        SetLDSPhase1BlockHistogram(idx, x + prefix - value);
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -335,7 +336,7 @@ void OnesweepReorderImpl(
     uint prefix = 0;
     for (uint i = 0; i < BIN_SIZE; i += REORDER_NUMBER_OF_THREADS_PER_BLOCK)
     {
-        prefix += ScanExclusiveBlockHistogram((uint16_t)prefix, localId + i);
+        prefix += ScanExclusiveBlockHistogram((uint16_t)prefix, i, localId, min(REORDER_NUMBER_OF_THREADS_PER_BLOCK, BIN_SIZE));
     }
 
     for (uint bucketIndex = localId; bucketIndex < BIN_SIZE; bucketIndex += REORDER_NUMBER_OF_THREADS_PER_BLOCK)

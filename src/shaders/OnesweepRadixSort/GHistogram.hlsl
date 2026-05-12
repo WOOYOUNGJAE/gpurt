@@ -31,36 +31,37 @@ void InitGHistogramImpl(
     }
 }
 
-uint ScanExclusiveLocalCounters(uint prefix, uint passIdx, uint binIdx)
+uint ScanExclusiveLocalCounters(uint prefix, uint iteration, uint start, uint localId, uint nElements)
 {
-    bool active = binIdx < BIN_SIZE;
-    uint value = active ? localCounters[passIdx][binIdx] : 0;
+    bool active = localId < nElements;
+    uint idx = start + localId;
+    uint value = active ? localCounters[iteration][idx] : 0;
     uint x = value;
 
-    for (uint offset = 1; offset < BIN_SIZE; offset <<= 1)
+    for (uint offset = 1; offset < nElements; offset <<= 1)
     {
-        if (active && offset <= binIdx)
+        if (active && offset <= localId)
         {
-            x += localCounters[passIdx][binIdx - offset];
+            x += localCounters[iteration][idx - offset];
         }
 
         GroupMemoryBarrierWithGroupSync();
 
         if (active)
         {
-            localCounters[passIdx][binIdx] = x;
+            localCounters[iteration][idx] = x;
         }
 
         GroupMemoryBarrierWithGroupSync();
     }
 
-    uint sum = localCounters[passIdx][BIN_SIZE - 1];
+    uint sum = localCounters[iteration][start + nElements - 1];
 
     GroupMemoryBarrierWithGroupSync();
 
     if (active)
     {
-        localCounters[passIdx][binIdx] = x + prefix - value;
+        localCounters[iteration][idx] = x + prefix - value;
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -120,7 +121,7 @@ void GHistogramImpl(
         uint prefix = 0;
         for (uint j = 0; j < BIN_SIZE; j += GHISTOGRAM_THREADS_PER_BLOCK)
         {
-            prefix += ScanExclusiveLocalCounters(prefix, i, localId + j);
+            prefix += ScanExclusiveLocalCounters(prefix, i, j, localId, min(GHISTOGRAM_THREADS_PER_BLOCK, BIN_SIZE));
         }
     }
 
