@@ -748,6 +748,13 @@ struct AccelStructPostBuildInfoDesc
     AccelStructPostBuildInfoType infoType;            // Type of information to be written
 };
 
+struct AccelBuildTimestampInfo
+{
+    const Pal::IGpuMemory* pTimestampQueryPoolMemory; // Timestamp query pool for internal bvh build phases
+    gpusize                timestampStartOffset;
+};
+
+
 // Acceleration structure build information
 struct AccelStructBuildInfo
 {
@@ -763,6 +770,7 @@ struct AccelStructBuildInfo
                                                            // client API form. These will be translated at build time by
                                                            // calling the client-provided function
                                                            // ClientConvertAccelStructPostBuildInfo().
+    AccelBuildTimestampInfo        timestampInfo;          // timestamp info for internal build phases
 };
 
 // GPURT version of the API AABB description in GPU memory.  It should match e.g. D3D12DDI_RAYTRACING_AABB.
