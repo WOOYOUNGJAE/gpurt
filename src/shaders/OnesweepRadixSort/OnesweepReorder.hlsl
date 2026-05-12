@@ -148,12 +148,12 @@ uint PackPartition(uint value, uint flag)
 
 uint UnpackValue(uint partition)
 {
-    return partition >> 30;
+    return partition & DLB_VALUE_MASK;
 }
 
 uint UnpackFlag(uint partition)
 {
-    return partition & DLB_VALUE_MASK;
+    return partition >> 30;
 }
 
 //=====================================================================================================================
@@ -496,8 +496,8 @@ void OnesweepReorder(
                         groupId,
                         numPrimitives,
                         currentFromKeys,
-                        currentFromVals,
                         currentToKeys,
+                        currentFromVals,
                         currentToVals,
                         gpSumOffset,
                         lookBackOffset,
