@@ -164,10 +164,15 @@ void InitOnesweepReorderImpl(
     uint lookBackOffset)
 {
     const uint numberOfBlocks = RoundUpQuotient(numElements, RADIX_SORT_BLOCK_SIZE);
+    const uint numLookBacks = numberOfBlocks * BIN_SIZE;
 
-    if (globalId < numberOfBlocks * BIN_SIZE)
+    // Vectorized initialization outperforms scalar 1:1 mapping
+    // Note: Since BIN_SIZE is multiple of 4, numLookBacks is guaranteed to be aligned to 16 bytes.
+    // No performance difference observed between grid-stride and simple uint4 vectorization. 
+    // Chose simple vectorization for simplicity.
+    if (globalId < numLookBacks / 4)
     {
-        ScratchBuffer.Store<uint>(lookBackOffset + globalId * sizeof(uint), 0);
+        ScratchBuffer.Store<uint4>(lookBackOffset + globalId * sizeof(uint4), uint4(0, 0, 0, 0));
     }
 }
 

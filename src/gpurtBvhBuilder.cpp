@@ -5234,7 +5234,9 @@ void BvhBuilder::InitOnesweepReorder()
     WriteBuildBufferBindings();
 
     RGP_PUSH_MARKER("Init Onesweep Reorder");
-    Dispatch(Util::RoundUpQuotient(numDynamicBlocks, m_onesweepRadixSortConfig.workGroupSizeReorder));
+    // Each thread processes 4 elements (uint4 vectorization).
+    // Note: Since number of bins is multiple of 4, numDynamicBlocks is also multiple of 4.
+    Dispatch(Util::RoundUpQuotient(numDynamicBlocks / 4, m_onesweepRadixSortConfig.workGroupSizeReorder));
 
     RGP_POP_MARKER();
 }
