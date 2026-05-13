@@ -197,6 +197,22 @@ uint32 BvhBuilder::GetGeometryPrimCount(
     return primCount;
 }
 
+//=====================================================================================================================
+void BvhBuilder::WriteInternalTimestamp()
+{
+    // Allow InternalTimeMeasure
+    if (m_buildArgs.timestampInfo.pTimestampQueryPoolMemory != nullptr)
+    {
+        Barrier();
+        m_backend.WriteTimestamp(m_cmdBuffer,
+                                 *m_buildArgs.timestampInfo.pTimestampQueryPoolMemory,
+                                 m_buildArgs.timestampInfo.timestampStartOffset);
+        m_buildArgs.timestampInfo.timestampStartOffset += sizeof(uint64_t);
+    }
+}
+#define INTERNAL_TIMESTAMP_BEGIN() WriteInternalTimestamp()
+#define INTERNAL_TIMESTAMP_END()   WriteInternalTimestamp()
+
 // =====================================================================================================================
 // Helper function that dispatches of size {numGroups, 1, 1}
 void BvhBuilder::Dispatch(
@@ -3322,6 +3338,8 @@ void BvhBuilder::EncodeQuadPrimitives()
     WriteBuildBufferBindings(shaderConstants, BuildBufferBindingFlags::GeometryBuffer);
 #endif
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("Encode Quad Nodes (NumPrimitives=%u)(NumBlocks=%u)",
                      m_buildConfig.maxNumPrimitives,
                      m_buildConfig.trianglePairBlockCount);
@@ -3329,12 +3347,16 @@ void BvhBuilder::EncodeQuadPrimitives()
     Dispatch(m_buildConfig.trianglePairBlockCount);
 
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 // =====================================================================================================================
 // Prepares the inputs for the primitive encode shaders
 void BvhBuilder::EncodePrimitives()
 {
+    INTERNAL_TIMESTAMP_BEGIN();
+
     const bool isBottomLevel = (m_buildArgs.inputs.type == AccelStructType::BottomLevel);
 
     if (isBottomLevel)
@@ -3431,6 +3453,8 @@ void BvhBuilder::EncodePrimitives()
         EncodeInstances(m_buildArgs.inputs.inputElemCount,
                         m_buildArgs.inputs.inputElemLayout);
     }
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 // =====================================================================================================================
@@ -4069,6 +4093,8 @@ void BvhBuilder::MergeSort(
 
     WriteBuildBufferBindings();
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("Merge Sort (maxNumPrimitives %u)", m_buildConfig.maxNumPrimitives);
 
     const uint32 tgSize          = 512;
@@ -4076,6 +4102,8 @@ void BvhBuilder::MergeSort(
     Dispatch(numThreadGroups);
 
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 // =====================================================================================================================
@@ -4197,10 +4225,14 @@ void BvhBuilder::Rebraid()
 
     WriteBuildBufferBindings(shaderConstants);
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("Rebraid (numPrims %u)", m_buildConfig.numPrimitives);
     Dispatch(numThreadGroups);
 
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 // =====================================================================================================================
@@ -4215,10 +4247,14 @@ void BvhBuilder::GenerateMortonCodes()
     WriteBuildBufferBindings();
 #endif
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("Generate Morton Codes (maxNumPrimitives %u)", m_buildConfig.maxNumPrimitives);
     Dispatch(DispatchSize(m_buildConfig.maxNumPrimitives));
 
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 // =====================================================================================================================
@@ -4252,10 +4288,14 @@ void BvhBuilder::BuildFastAgglomerativeLbvh()
 
     WriteBuildBufferBindings();
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("Build Fast Agglomerative LBVH (maxNumPrimitives %u)", m_buildConfig.maxNumPrimitives);
     Dispatch(DispatchSize(m_buildConfig.maxNumPrimitives));
 
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 // =====================================================================================================================
@@ -4265,6 +4305,8 @@ void BvhBuilder::BuildHPLOC()
     BindPipeline(InternalRayTracingCsType::BuildHPLOC);
 
     WriteBuildBufferBindings();
+
+    INTERNAL_TIMESTAMP_BEGIN();
 
     RGP_PUSH_MARKER("Build HPLOC (numLeafNodes %u)", m_buildConfig.maxNumPrimitives);
 
@@ -4280,6 +4322,9 @@ void BvhBuilder::BuildHPLOC()
     }
 
     RGP_POP_MARKER();
+
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 // =====================================================================================================================
@@ -4316,11 +4361,15 @@ void BvhBuilder::UpdateQBVH()
     // Set result/scratch/source buffers
     entryOffset = WriteUpdateBuffers(entryOffset);
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("Update QBVH");
 
     Dispatch(DispatchSize(numWorkItems));
 
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 // =====================================================================================================================
@@ -4361,10 +4410,14 @@ void BvhBuilder::UpdateParallel()
     // Set result/scratch/source buffers
     entryOffset = WriteUpdateBuffers(entryOffset);
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("Update Parallel");
     Dispatch(numThreadGroups);
 
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 // =====================================================================================================================
@@ -4440,9 +4493,13 @@ void BvhBuilder::EncodeUpdate()
         // NullBuffer binding
         entryOffset = WriteBufferVa(0, entryOffset);
 
+        INTERNAL_TIMESTAMP_BEGIN();
+
         RGP_PUSH_MARKER("Update (NumPrimitives=%u)", m_buildConfig.maxNumPrimitives);
         Dispatch(numThreadGroups);
         RGP_POP_MARKER();
+
+        INTERNAL_TIMESTAMP_END();
     }
 }
 
@@ -4503,9 +4560,13 @@ void BvhBuilder::EncodeHwBvh()
     WriteBuildBufferBindings(shaderConstants);
 #endif
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("Encode HW BVH (nodeCount %u)", nodeCount);
     Dispatch(numThreadGroups);
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 #if GPURT_BUILD_RTIP3_1
@@ -4524,9 +4585,14 @@ void BvhBuilder::RefitOrientedBounds()
     WriteBuildBufferBindings({}, BuildBufferBindingFlags::ObbLut);
 
     const gpusize stackPtrsGpuVa = ScratchBufferBaseVa() + m_scratchOffsets.obbRefitStackPtrs;
+
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("Refit Oriented Bounds");
     DispatchIndirect(stackPtrsGpuVa + STACK_PTRS_OBB_REFIT_GROUP_COUNT_X);
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 // =====================================================================================================================
@@ -4543,9 +4609,13 @@ void BvhBuilder::CompressPrims()
 
     const gpusize stackPtrsGpuVa = ScratchBufferBaseVa() + m_scratchOffsets.qbvhGlobalStackPtrs;
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("Compress Primitives");
     DispatchIndirect(stackPtrsGpuVa + STACK_PTRS_PRIM_COMP_GROUP_COUNT_X);
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 #endif
 
@@ -4559,10 +4629,14 @@ void BvhBuilder::PairCompression()
 
     WriteBuildBufferBindings({}, BuildBufferBindingFlags::GeometryBuffer);
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("Pair Compression");
     Dispatch(DispatchSize(m_buildConfig.maxNumPrimitives));
 
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 // =====================================================================================================================
@@ -4590,7 +4664,6 @@ void BvhBuilder::ClearBuffer(
 
     RGP_PUSH_MARKER("Clear Buffer");
     Dispatch(DispatchSize(numDwords));
-
     RGP_POP_MARKER();
 }
 
@@ -4742,10 +4815,14 @@ void BvhBuilder::BuildParallel()
     WriteBuildBufferBindings(shaderConstants, BuildBufferBindingFlags::GeometryBuffer);
 #endif
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("BVH build");
     Dispatch(numThreadGroups);
 
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 
 #if GPURT_BUILD_RTIP3_1
@@ -4794,10 +4871,14 @@ void BvhBuilder::BuildTrivialBvh()
     const uint32 vbvSrdTableGpuVaLo = Util::LowPart(m_geomBufferSrdTable);
     entryOffset = WriteUserDataEntries(&vbvSrdTableGpuVaLo, 1, entryOffset);
 
+    INTERNAL_TIMESTAMP_BEGIN();
+
     RGP_PUSH_MARKER("BVH build");
     Dispatch(numThreadGroups);
 
     RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
 }
 #endif
 

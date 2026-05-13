@@ -393,6 +393,12 @@ void BvhBatcher::BuildMultiDispatch(Util::Span<BvhBuilder> builders)
         }
         else
         {
+            // INTERNAL_TIMESTAMP_BEGIN
+            for (auto& builder : builders)
+            {
+                builder.WriteInternalTimestamp();
+            }
+
             RGP_PUSH_MARKER("Merge Sort");
 
             // Batch local sorts together.
@@ -447,21 +453,53 @@ void BvhBatcher::BuildMultiDispatch(Util::Span<BvhBuilder> builders)
             }
 
             RGP_POP_MARKER();
+
+            // INTERNAL_TIMESTAMP_END
+            for (auto& builder : builders)
+            {
+                builder.WriteInternalTimestamp();
+            }
         }
     }
     if (PhaseEnabled(BuildPhaseFlags::OnesweepRadixSort))
     {
         Barrier();
+        
+        // INTERNAL_TIMESTAMP_BEGIN
+        for (auto& builder : builders)
+        {
+            builder.WriteInternalTimestamp();
+        }     
+
         RGP_PUSH_MARKER("Onesweep Radix Sort");
         OnesweepRadixSort(builders);
         RGP_POP_MARKER();
+
+        // INTERNAL_TIMESTAMP_END
+        for (auto& builder : builders)
+        {
+            builder.WriteInternalTimestamp();
+        }
     }
     if (PhaseEnabled(BuildPhaseFlags::RadixSort))
     {
         Barrier();
+
+        // INTERNAL_TIMESTAMP_BEGIN
+        for (auto& builder : builders)
+        {
+            builder.WriteInternalTimestamp();
+        }     
+
         RGP_PUSH_MARKER("Radix Sort");
         RadixSort(builders);
         RGP_POP_MARKER();
+
+        // INTERNAL_TIMESTAMP_END
+        for (auto& builder : builders)
+        {
+            builder.WriteInternalTimestamp();
+        }     
     }
     if (PhaseEnabled(BuildPhaseFlags::BuildFastAgglomerativeLbvh))
     {
