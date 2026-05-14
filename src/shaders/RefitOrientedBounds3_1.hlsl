@@ -556,7 +556,7 @@ static float2 ComputeOBBBoundsInLDS(
         GenerateKdopVertex(facet.z)
     };
 
-    float2 extentsX = { ReadKDopMin(laneGroupIndex, facet.x),  ReadKDopMax(laneGroupIndex, facet.x) };
+    float2 extentsX = { ReadKDopMin(laneGroupIndex, facet.x / 2),  ReadKDopMax(laneGroupIndex, facet.x / 2) };
     if (facet.x % 2 == 1)
     {
         float mn = extentsX.x;
@@ -564,7 +564,7 @@ static float2 ComputeOBBBoundsInLDS(
         extentsX.y = mn;
         extentsX *= -1.0;
     }
-    float2 extentsY = { ReadKDopMin(laneGroupIndex, facet.y),  ReadKDopMax(laneGroupIndex, facet.y) };
+    float2 extentsY = { ReadKDopMin(laneGroupIndex, facet.y / 2),  ReadKDopMax(laneGroupIndex, facet.y / 2) };
     if (facet.y % 2 == 1)
     {
         float mn = extentsY.x;
@@ -572,7 +572,7 @@ static float2 ComputeOBBBoundsInLDS(
         extentsY.y = mn;
         extentsY *= -1.0;
     }
-    float2 extentsZ = { ReadKDopMin(laneGroupIndex, facet.z),  ReadKDopMax(laneGroupIndex, facet.z) };
+    float2 extentsZ = { ReadKDopMin(laneGroupIndex, facet.z / 2),  ReadKDopMax(laneGroupIndex, facet.z / 2) };
     if (facet.z % 2 == 1)
     {
         float mn = extentsZ.x;
@@ -822,12 +822,16 @@ void RefitOrientedBoundsImpl(
 
 #if UPDATE_CUR_NODE_ORIENTATION
         GroupMemoryBarrierWithGroupSync();
-        if (originalBestObbMatrixIndex != INVALID_OBB)
+        // if (originalBestObbMatrixIndex != INVALID_OBB)
         {
-            const uint rotatedMatrixIndex = Obb45DegRotLut[originalBestObbMatrixIndex][laneGroup.laneIndex];
+            const uint rotatedMatrixIndex = originalBestObbMatrixIndex == INVALID_OBB ? Obb45DegRotLut[12][laneGroup.laneIndex] : Obb45DegRotLut[originalBestObbMatrixIndex][laneGroup.laneIndex];
+            // const uint rotatedMatrixIndex = Obb45DegRotLut[originalBestObbMatrixIndex][laneGroup.laneIndex];
+
             // re-adjust orientation that making cur(children's parent) obb smallest
-            const BoundingBox curCandidateObb = ComputeBoxNodeOBBInLDS(laneGroup.groupIndex, rotatedMatrixIndex);
-            const float curObbSA = ComputeBoxSurfaceArea(curCandidateObb);
+            const BoundingBox curCandidateObb = ComputeBoxNodeOBBInLDS(laneGroupIndex, rotatedMatrixIndex);
+            // const float curObbSA = ComputeBoxSurfaceArea(curCandidateObb);
+            float3 dim = curCandidateObb.max - curCandidateObb.min;
+            const float curObbSA =  IsInvalidBoundingBoxAny(curCandidateObb) || IsCorruptBox(curCandidateObb) ? FLT_MAX : 2.0f * (dim.x * dim.y + dim.x * dim.z + dim.y * dim.z);
             const float minObbSA = laneGroup.Min(curObbSA);
             uint minLane = laneGroup.GetFirstActiveLaneIndex(curObbSA == minObbSA);
             bestObbMatrixIndex = laneGroup.Broadcast(rotatedMatrixIndex, minLane);

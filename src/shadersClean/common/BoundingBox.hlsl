@@ -125,6 +125,12 @@ static bool IsInvalidBoundingBox(BoundingBox box)
 }
 
 //=====================================================================================================================
+static bool IsInvalidBoundingBoxAny(BoundingBox box)
+{
+    return any(box.min > box.max);
+}
+
+//=====================================================================================================================
 static bool IsCorruptBox(BoundingBox box)
 {
     if (any(isinf(box.min)) || any(isinf(box.max)) || any(isnan(box.min)) || any(isnan(box.max)))
