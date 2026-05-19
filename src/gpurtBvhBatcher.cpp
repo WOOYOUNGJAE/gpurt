@@ -902,7 +902,8 @@ void BvhBatcher::DispatchInitAccelerationStructure(
 void BvhBatcher::RadixSort(Util::Span<BvhBuilder> builders)
 {
     const auto& radixSortConfig = builders[0].m_radixSortConfig;
-    const uint32 numPasses = radixSortConfig.numPasses;
+    const uint32 numPasses = 
+        m_deviceSettings.enableMortonCode30 ? radixSortConfig.numPasses30 : radixSortConfig.numPasses;
     uint32 bitShiftSize = 0;
 
     // DLB Init only needs to run once before ScanExclusiveAddDLBScan is dispatched
