@@ -227,12 +227,6 @@ void OnesweepReorderImpl(
     uint iteration)
 {
     uint bitLocation = N_RADIX * iteration;
-    uint numberOfBlocks = RoundUpQuotient(numElements, RADIX_SORT_BLOCK_SIZE);
-
-    // Early termination
-    // Handle mismatch between dispatched threads and active primitives caused by early pair compression. 
-    // (Note: Can also be resolved via Indirect Dispatch)
-    if(groupId >= numberOfBlocks) return;
 
     for (uint i = 0; i < BIN_SIZE * REORDER_NUMBER_OF_WARPS; i += REORDER_NUMBER_OF_THREADS_PER_BLOCK) {
         SetLDSPhase1LpSum(i + localId, (uint16_t)0);
@@ -462,7 +456,6 @@ void SwapUint(
 //=====================================================================================================================
 // Main Function : OnesweepReorder
 //=====================================================================================================================
-
 [RootSignature(RootSig)]
 [numthreads(REORDER_NUMBER_OF_THREADS_PER_BLOCK, 1, 1)]
 void OnesweepReorder(
@@ -471,32 +464,23 @@ void OnesweepReorder(
 {
     const uint numPrimitives = FetchTaskCounter(
         ShaderConstants.offsets.encodeTaskCounter + ENCODE_TASK_COUNTER_PRIM_REFS_OFFSET);
+    const uint numberOfBlocks = RoundUpQuotient(numPrimitives, RADIX_SORT_BLOCK_SIZE);
 
-    const uint inputKeysOffset = ShaderConstants.offsets.mortonCodes;
-    const uint outputKeysOffset = ShaderConstants.offsets.mortonCodesSorted;
-    // Passing in 0 for initial primitive indices since we auto-generate them for the first pass
-    const uint inputValuesOffset = 0;
-    const uint outputValuesOffset = ShaderConstants.offsets.primIndicesSorted;
-
-    const uint scratchKeysOffset = ShaderConstants.offsets.tempKeys;
-    const uint scratchValuesOffset = ShaderConstants.offsets.tempVals;
-
-    uint currentFromKeys = inputKeysOffset;
-    uint currentFromVals = inputValuesOffset;
-    uint currentToKeys = scratchKeysOffset;
-    uint currentToVals = scratchValuesOffset;
+    // Early termination
+    // Handle mismatch between dispatched threads and active primitives caused by early pair compression. 
+    // (Note: Can also be resolved via Indirect Dispatch)
+    if(groupId >= numberOfBlocks) return;
+    
+    uint inputKeysOffset = ShaderConstants.offsets.mortonCodes;
+    uint outputKeysOffset = ShaderConstants.offsets.mortonCodesSorted;
+    uint inputValuesOffset = ShaderConstants.offsets.primIndicesSorted;
+    uint outputValuesOffset = ShaderConstants.offsets.primIndicesSortedSwap;
 
     const uint iteration = ShaderRootConstants.PassIndex();
-    if (iteration > 0)
-    {
-        currentFromKeys = outputKeysOffset;
-        currentFromVals = outputValuesOffset;
-    }
-
     if (iteration % 2 == 1)
     {
-        SwapUint(currentFromKeys, currentToKeys);
-        SwapUint(currentFromVals, currentToVals);
+        SwapUint(inputKeysOffset, outputKeysOffset);
+        SwapUint(inputValuesOffset, outputValuesOffset);
     }
 
     const uint gpSumOffset = ShaderConstants.offsets.histogram;
@@ -505,10 +489,10 @@ void OnesweepReorder(
     OnesweepReorderImpl(localId,
                         groupId,
                         numPrimitives,
-                        currentFromKeys,
-                        currentToKeys,
-                        currentFromVals,
-                        currentToVals,
+                        inputKeysOffset,
+                        outputKeysOffset,
+                        inputValuesOffset,
+                        outputValuesOffset,
                         gpSumOffset,
                         lookBackOffset,
                         iteration);

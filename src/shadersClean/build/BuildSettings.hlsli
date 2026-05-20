@@ -44,6 +44,7 @@
 [[vk::constant_id(BUILD_SETTINGS_DATA_ENABLE_REBRAID_ID)]]                         uint enableRebraid                 = 0;
 [[vk::constant_id(BUILD_SETTINGS_DATA_USE_MORTON_CODE_30_ID)]]                     uint useMortonCode30               = 0;
 [[vk::constant_id(BUILD_SETTINGS_DATA_ENABLE_MERGE_SORT_ID)]]                      uint enableMergeSort               = 0;
+[[vk::constant_id(BUILD_SETTINGS_DATA_ENABLE_ONESWEEP_RADIX_SORT_ID)]]             uint enableOnesweepRadixSort       = 0;
 [[vk::constant_id(BUILD_SETTINGS_DATA_ENABLE_FUSED_INSTANCE_NODE_ID)]]             uint enableFusedInstanceNode       = 0;
 [[vk::constant_id(BUILD_SETTINGS_DATA_NUM_REBRAID_ITERATIONS_ID)]]                 uint numRebraidIterations          = 0;
 [[vk::constant_id(BUILD_SETTINGS_DATA_DO_ENCODE_ID)]]                              uint doEncode                      = 0;
@@ -96,7 +97,7 @@ static const CompileTimeBuildSettings Settings = {
     0,
     useMortonCode30,
     enableMergeSort,
-    0,
+    enableOnesweepRadixSort,
     enableFusedInstanceNode,
     0,
     numRebraidIterations,

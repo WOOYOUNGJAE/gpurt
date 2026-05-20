@@ -109,7 +109,7 @@ struct CompileTimeBuildSettings
     uint32 unused1;
     uint32 useMortonCode30;
     uint32 enableMergeSort;
-    uint32 unused2;
+    uint32 enableOnesweepRadixSort;
     uint32 enableFusedInstanceNode;
     uint32 unused3;
     uint32 numRebraidIterations;
@@ -183,7 +183,7 @@ struct CompileTimeBuildSettings
 // unused1 id                                                         14
 #define BUILD_SETTINGS_DATA_USE_MORTON_CODE_30_ID                     15
 #define BUILD_SETTINGS_DATA_ENABLE_MERGE_SORT_ID                      16
-// unused2 id                                                         17
+#define BUILD_SETTINGS_DATA_ENABLE_ONESWEEP_RADIX_SORT_ID             17
 #define BUILD_SETTINGS_DATA_ENABLE_FUSED_INSTANCE_NODE_ID             18
 // unused3 id                                                         19
 #define BUILD_SETTINGS_DATA_NUM_REBRAID_ITERATIONS_ID                 20

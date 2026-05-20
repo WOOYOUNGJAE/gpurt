@@ -1444,16 +1444,13 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     //Onesweep Radix Sort
     else if (m_buildConfig.enableOnesweepRadixSort)
     {
+        // device temp vals buffer (int)
+        primIndicesSortedSwap = ReserveBytes(aabbCount * sizeof(uint32), &runningOffset);
+
 		// device histograms buffer (int)
         const uint32 numPasses = m_deviceSettings.enableMortonCode30 ? m_onesweepRadixSortConfig.numPasses30 : m_onesweepRadixSortConfig.numPasses60;
 		const uint32 numHistogramElements = numPasses * m_onesweepRadixSortConfig.numBins;
         histogram = ReserveBytes(numHistogramElements * sizeof(uint32), &runningOffset);
-       
-        // device temp keys buffer (int)
-        tempKeys = ReserveBytes(aabbCount * dataSize, &runningOffset);
-
-        // device temp vals buffer (int)
-        tempVals = ReserveBytes(aabbCount * sizeof(uint32), &runningOffset);
 
         // device lookback buffer (int)
         const uint32 numBlocks = (aabbCount + m_onesweepRadixSortConfig.keysPerBlockReorder - 1) / 
@@ -2907,6 +2904,7 @@ void BvhBuilder::InitBuildSettings()
     m_buildSettings.useMortonCode30              = m_deviceSettings.enableMortonCode30;
     m_buildSettings.enableFusedInstanceNode      = m_deviceSettings.enableFusedInstanceNode;
     m_buildSettings.enableMergeSort              = m_buildConfig.enableMergeSort;
+    m_buildSettings.enableOnesweepRadixSort      = m_buildConfig.enableOnesweepRadixSort;
 
     m_buildSettings.enableInstanceRebraid        = m_buildConfig.enableInstanceRebraid;
 

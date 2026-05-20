@@ -43,9 +43,12 @@ uint32_t Delta30(
     const uint left = id;
     const uint right = id + 1;
 
+    const uint mortonCodesOffset = 
+        Settings.enableOnesweepRadixSort ? ShaderConstants.offsets.mortonCodes : ShaderConstants.offsets.mortonCodesSorted;
+
     // Special handling of duplicated codes: use their indices as a fallback
-    const int leftCode  = ScratchBuffer.Load(ShaderConstants.offsets.mortonCodesSorted + (left * sizeof(int)));
-    const int rightCode = ScratchBuffer.Load(ShaderConstants.offsets.mortonCodesSorted + (right * sizeof(int)));
+    const int leftCode  = ScratchBuffer.Load(mortonCodesOffset + (left * sizeof(int)));
+    const int rightCode = ScratchBuffer.Load(mortonCodesOffset + (right * sizeof(int)));
 
     // returns number of matching bits starting from MSB
     return (leftCode != rightCode) ? clz(leftCode ^ rightCode) : (32 + clz(left ^ right));
@@ -60,11 +63,14 @@ uint32_t Delta64(
     const uint left = id;
     const uint right = id + 1;
 
+    const uint mortonCodesOffset = 
+        Settings.enableOnesweepRadixSort ? ShaderConstants.offsets.mortonCodes : ShaderConstants.offsets.mortonCodesSorted;
+
     // Special handling of duplicated codes: use their indices as a fallback
     const uint64_t leftCode  =
-        ScratchBuffer.Load<uint64_t>(ShaderConstants.offsets.mortonCodesSorted + (left * sizeof(uint64_t)));
+        ScratchBuffer.Load<uint64_t>(mortonCodesOffset + (left * sizeof(uint64_t)));
     const uint64_t rightCode =
-        ScratchBuffer.Load<uint64_t>(ShaderConstants.offsets.mortonCodesSorted + (right * sizeof(uint64_t)));
+        ScratchBuffer.Load<uint64_t>(mortonCodesOffset + (right * sizeof(uint64_t)));
 
     // returns number of matching bits starting from MSB
     return (leftCode != rightCode) ? clz64(leftCode ^ rightCode) : (64 + clz64(left ^ right));

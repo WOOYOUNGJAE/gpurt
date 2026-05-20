@@ -62,7 +62,7 @@ FastLBVHArgs GetFastLbvhArgs(uint numActivePrims)
     args.numActivePrims              = numActivePrims;
     args.baseFlagsOffset             = ShaderConstants.offsets.propagationFlags;
     args.baseScratchNodesOffset      = CalculateBvhNodesOffset(ShaderConstants, numActivePrims);
-    args.sortedMortonCodesOffset     = ShaderConstants.offsets.mortonCodesSorted;
+    args.sortedMortonCodesOffset     = Settings.enableOnesweepRadixSort ? ShaderConstants.offsets.mortonCodes : ShaderConstants.offsets.mortonCodesSorted;
     args.useMortonCode30             = Settings.useMortonCode30;
     args.numBatchesOffset            = ShaderConstants.offsets.numBatches;
     args.baseBatchIndicesOffset      = ShaderConstants.offsets.batchIndices;
