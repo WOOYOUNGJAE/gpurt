@@ -376,6 +376,8 @@ enum class InternalRayTracingCsType : uint32
     InitOnesweepReorder,
     OnesweepReorder30,
     OnesweepReorder60,
+    OnesweepReorderSmall30,
+    OnesweepReorderSmall60,
     Count
 };
 

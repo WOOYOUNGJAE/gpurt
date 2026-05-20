@@ -187,6 +187,8 @@ bvhShaderConfigs = [
     ShaderConfig(path="OnesweepRadixSort/OnesweepReorder.hlsl", entryPoint="InitOnesweepReorder"),
     ShaderConfig(path="OnesweepRadixSort/OnesweepReorder.hlsl", entryPoint="OnesweepReorder", defines="USE_MORTON_CODE_30=1", outputName="OnesweepReorder30"),
     ShaderConfig(path="OnesweepRadixSort/OnesweepReorder.hlsl", entryPoint="OnesweepReorder", defines="USE_MORTON_CODE_30=0", outputName="OnesweepReorder60"),
+    ShaderConfig(path="OnesweepRadixSort/OnesweepReorder.hlsl", entryPoint="OnesweepReorder", defines="USE_MORTON_CODE_30=1, RADIX_SORT_BLOCK_SIZE=512", outputName="OnesweepReorderSmall30"),
+    ShaderConfig(path="OnesweepRadixSort/OnesweepReorder.hlsl", entryPoint="OnesweepReorder", defines="USE_MORTON_CODE_30=0, RADIX_SORT_BLOCK_SIZE=512", outputName="OnesweepReorderSmall60"),
 ]
 
 def getBaseDxcCommandArgs(isBvh:bool, isLibrary:bool, isSpirv:bool):

@@ -130,6 +130,8 @@ const PipelineBuildInfo InternalPipelineBuildInfo[size_t(InternalRayTracingCsTyp
     PIPELINE_BUILD_BVH_INFO(InitOnesweepReorder),
     PIPELINE_BUILD_BVH_INFO(OnesweepReorder30),
     PIPELINE_BUILD_BVH_INFO(OnesweepReorder60),
+    PIPELINE_BUILD_BVH_INFO(OnesweepReorderSmall30),
+    PIPELINE_BUILD_BVH_INFO(OnesweepReorderSmall60),
 };
 
 #undef PIPELINE_BUILD_INFO

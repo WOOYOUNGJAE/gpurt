@@ -217,6 +217,8 @@ struct OnesweepRadixSortConfig
     uint32 workGroupSizeReorder;
     uint32 keysPerBlockHistogram;
     uint32 keysPerBlockReorder;
+    uint32 keysPerBlockReorderSmall;
+    uint32 smallBuilderThreshold;
     uint32 bitsPerPass;
 	uint32 numBins;
 	uint32 numPasses30;
@@ -235,6 +237,8 @@ static OnesweepRadixSortConfig GetOnesweepRadixSortConfig(
     config.workGroupSizeReorder = 256;
     config.keysPerBlockHistogram = 512;
     config.keysPerBlockReorder = 2048;
+    config.keysPerBlockReorderSmall = 512;
+    config.smallBuilderThreshold = 100000;
     config.bitsPerPass = 8;
 	config.numBins = 1 << config.bitsPerPass;
 	config.numPasses30 = 32 / config.bitsPerPass;

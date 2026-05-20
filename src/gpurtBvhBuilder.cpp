@@ -1451,10 +1451,13 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
         const uint32 numPasses = m_deviceSettings.enableMortonCode30 ? m_onesweepRadixSortConfig.numPasses30 : m_onesweepRadixSortConfig.numPasses60;
 		const uint32 numHistogramElements = numPasses * m_onesweepRadixSortConfig.numBins;
         histogram = ReserveBytes(numHistogramElements * sizeof(uint32), &runningOffset);
+        
+        const uint32 keysPerBlockReorder = 
+            (aabbCount <= m_onesweepRadixSortConfig.smallBuilderThreshold) ?
+            m_onesweepRadixSortConfig.keysPerBlockReorderSmall : m_onesweepRadixSortConfig.keysPerBlockReorder;
 
         // device lookback buffer (int)
-        const uint32 numBlocks = (aabbCount + m_onesweepRadixSortConfig.keysPerBlockReorder - 1) / 
-                                 m_onesweepRadixSortConfig.keysPerBlockReorder;
+        const uint32 numBlocks = (aabbCount + keysPerBlockReorder - 1) / keysPerBlockReorder;
 		const uint32 numDynamicBlocks = numBlocks * m_onesweepRadixSortConfig.numBins;
 		atomicFlags = ReserveBytes(numDynamicBlocks * sizeof(uint32), &runningOffset);
         
@@ -5183,7 +5186,7 @@ void BvhBuilder::InitGHistogram()
 
     const uint32 numPasses = 
         m_deviceSettings.enableMortonCode30 ? m_onesweepRadixSortConfig.numPasses30 : m_onesweepRadixSortConfig.numPasses60;
-    const uint numHistogramElements = numPasses * m_onesweepRadixSortConfig.numBins;
+    const uint32 numHistogramElements = numPasses * m_onesweepRadixSortConfig.numBins;
     const uint32 numBlocks = 
         Util::RoundUpQuotient(numHistogramElements, m_onesweepRadixSortConfig.workGroupSizeHistogram);
 
@@ -5205,10 +5208,10 @@ void BvhBuilder::GHistogram()
     BindPipeline(pipelineType);
     
     // Note: Maximum waves per simd = 16
-    const uint wavesPerSimd = 16;
-    const uint numOptimalGroups = 
+    const uint32 wavesPerSimd = 16;
+    const uint32 numOptimalGroups = 
         m_backend.GetOptimalNumThreadGroups(m_onesweepRadixSortConfig.workGroupSizeHistogram) * wavesPerSimd;
-    const uint numDataGroups = 
+    const uint32 numDataGroups = 
         Util::RoundUpQuotient(m_buildConfig.maxNumPrimitives, m_onesweepRadixSortConfig.keysPerBlockHistogram);
 
     WriteBuildBufferBindings();
@@ -5225,8 +5228,12 @@ void BvhBuilder::InitOnesweepReorder()
 {
     BindPipeline(InternalRayTracingCsType::InitOnesweepReorder);
 
+    const uint32 keysPerBlock = 
+        (m_buildConfig.maxNumPrimitives <= m_onesweepRadixSortConfig.smallBuilderThreshold) ?
+        m_onesweepRadixSortConfig.keysPerBlockReorderSmall : m_onesweepRadixSortConfig.keysPerBlockReorder;
+
     const uint32 numBlocks = 
-        Util::RoundUpQuotient(m_buildConfig.maxNumPrimitives, m_onesweepRadixSortConfig.keysPerBlockReorder);
+        Util::RoundUpQuotient(m_buildConfig.maxNumPrimitives, keysPerBlock);
 	const uint32 numDynamicBlocks = numBlocks * m_onesweepRadixSortConfig.numBins;
 
     WriteBuildBufferBindings();
@@ -5243,13 +5250,29 @@ void BvhBuilder::InitOnesweepReorder()
 // Executes the onesweep reorder pass
 void BvhBuilder::OnesweepReorder(uint32 passIdx)
 {
-    InternalRayTracingCsType pipelineType = m_deviceSettings.enableMortonCode30 ? 
-                                            InternalRayTracingCsType::OnesweepReorder30 :
-                                            InternalRayTracingCsType::OnesweepReorder60;
+    InternalRayTracingCsType pipelineType;
+    uint32 keysPerBlock;
+    if(m_buildConfig.maxNumPrimitives <= m_onesweepRadixSortConfig.smallBuilderThreshold)
+    {
+        pipelineType = m_deviceSettings.enableMortonCode30 ? 
+                            InternalRayTracingCsType::OnesweepReorderSmall30 :
+                            InternalRayTracingCsType::OnesweepReorderSmall60;
+
+        keysPerBlock = m_onesweepRadixSortConfig.keysPerBlockReorderSmall;
+    }
+    else
+    {
+        pipelineType = m_deviceSettings.enableMortonCode30 ? 
+                            InternalRayTracingCsType::OnesweepReorder30 :
+                            InternalRayTracingCsType::OnesweepReorder60;
+
+        keysPerBlock = m_onesweepRadixSortConfig.keysPerBlockReorder;
+    }
+    
     BindPipeline(pipelineType);
 
     const uint32 numBlocks = 
-        Util::RoundUpQuotient(m_buildConfig.maxNumPrimitives, m_onesweepRadixSortConfig.keysPerBlockReorder);
+        Util::RoundUpQuotient(m_buildConfig.maxNumPrimitives, keysPerBlock);
 
     BuildShaderRootConstants1 shaderConstants =
     {
