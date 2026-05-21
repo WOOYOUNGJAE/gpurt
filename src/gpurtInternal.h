@@ -238,7 +238,7 @@ static OnesweepRadixSortConfig GetOnesweepRadixSortConfig(
     config.keysPerBlockHistogram = 512;
     config.keysPerBlockReorder = 2048;
     config.keysPerBlockReorderSmall = 512;
-    config.smallBuilderThreshold = 100000;
+    config.smallBuilderThreshold = 100'000;
     config.bitsPerPass = 8;
 	config.numBins = 1 << config.bitsPerPass;
 	config.numPasses30 = 32 / config.bitsPerPass;

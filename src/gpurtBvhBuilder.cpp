@@ -5236,7 +5236,11 @@ void BvhBuilder::InitOnesweepReorder()
         Util::RoundUpQuotient(m_buildConfig.maxNumPrimitives, keysPerBlock);
 	const uint32 numDynamicBlocks = numBlocks * m_onesweepRadixSortConfig.numBins;
 
-    WriteBuildBufferBindings();
+    BuildShaderRootConstants1 shaderConstants =
+    {
+        .numElements = m_buildConfig.maxNumPrimitives
+    };
+    WriteBuildBufferBindings(shaderConstants);
 
     RGP_PUSH_MARKER("Init Onesweep Reorder");
     // Each thread processes 4 elements (uint4 vectorization).

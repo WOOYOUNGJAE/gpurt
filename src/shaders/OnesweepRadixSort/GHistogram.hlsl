@@ -145,7 +145,9 @@ void GHistogramImpl(
 void InitGHistogram(
     uint globalId : SV_DispatchThreadID)
 {
-    const uint numHistogramElements = N_ITERATION * BIN_SIZE;
+    const uint nIteration = Settings.useMortonCode30 ? 32 / N_RADIX : 64 / N_RADIX;
+    const uint numHistogramElements = nIteration * BIN_SIZE;
+    
     const uint counterOffset = ShaderConstants.offsets.histogramTaskCounter;
     const uint gpSumOffset = ShaderConstants.offsets.histogram;
 

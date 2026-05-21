@@ -5,9 +5,9 @@
 // =====================================================================================================================
 // Configs
 // Note: These configurations should be managed with gpurtInternal.h::GetOnesweepRadixSortConfig().
-#define N_RADIX (8)
-#define BIN_SIZE (1 << N_RADIX)
-#define RADIX_MASK ((1 << N_RADIX) - 1)
+#define N_RADIX     (8)
+#define BIN_SIZE    (1 << N_RADIX)
+#define RADIX_MASK  ((1 << N_RADIX) - 1)
 
 #if USE_MORTON_CODE_30
     typedef uint RADIX_SORT_KEY_TYPE;
@@ -17,20 +17,26 @@
 typedef uint RADIX_SORT_VALUE_TYPE;
 #define N_ITERATION (sizeof(RADIX_SORT_KEY_TYPE) * 8 / N_RADIX)
 
-#define WARP_SIZE (64)
+#define WARP_SIZE                           (64)
 
-#define GHISTOGRAM_ITEMS_PER_BLOCK (512)
-#define GHISTOGRAM_THREADS_PER_BLOCK (256)
-#define GHISTOGRAM_ITEMS_PER_THREAD (GHISTOGRAM_ITEMS_PER_BLOCK / GHISTOGRAM_THREADS_PER_BLOCK)
+#define GHISTOGRAM_ITEMS_PER_BLOCK          (512)
+#define GHISTOGRAM_THREADS_PER_BLOCK        (256)
+#define GHISTOGRAM_ITEMS_PER_THREAD         (GHISTOGRAM_ITEMS_PER_BLOCK / GHISTOGRAM_THREADS_PER_BLOCK)
 
-#ifndef RADIX_SORT_BLOCK_SIZE
-#define RADIX_SORT_BLOCK_SIZE (2048)
+#define RADIX_SORT_BLOCK_SIZE_NORMAL        (2048)
+#define RADIX_SORT_BLOCK_SIZE_SMALL_BUILDER (512)
+#define REORDER_SMALL_BUILDER_THRESHOLD     (100000)
+
+#if REORDER_SMALL_BUILDER
+    #define RADIX_SORT_BLOCK_SIZE           RADIX_SORT_BLOCK_SIZE_SMALL_BUILDER
+#else
+    #define RADIX_SORT_BLOCK_SIZE           RADIX_SORT_BLOCK_SIZE_NORMAL
 #endif
 
 #define REORDER_NUMBER_OF_THREADS_PER_BLOCK (256)
-#define REORDER_NUMBER_OF_WARPS (REORDER_NUMBER_OF_THREADS_PER_BLOCK / WARP_SIZE)
-#define REORDER_NUMBER_OF_ITEMS_PER_WARP (RADIX_SORT_BLOCK_SIZE / REORDER_NUMBER_OF_WARPS)
-#define REORDER_NUMBER_OF_ITEMS_PER_THREAD (REORDER_NUMBER_OF_ITEMS_PER_WARP / WARP_SIZE)
+#define REORDER_NUMBER_OF_WARPS             (REORDER_NUMBER_OF_THREADS_PER_BLOCK / WARP_SIZE)
+#define REORDER_NUMBER_OF_ITEMS_PER_WARP    (RADIX_SORT_BLOCK_SIZE / REORDER_NUMBER_OF_WARPS)
+#define REORDER_NUMBER_OF_ITEMS_PER_THREAD  (REORDER_NUMBER_OF_ITEMS_PER_WARP / WARP_SIZE)
 
 // =====================================================================================================================
 // Helpers

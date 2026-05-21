@@ -161,9 +161,12 @@ uint UnpackFlag(uint partition)
 void InitOnesweepReorderImpl(
     uint globalId,
     uint numElements,
+    uint numActiveElements,
     uint lookBackOffset)
 {
-    const uint numberOfBlocks = RoundUpQuotient(numElements, RADIX_SORT_BLOCK_SIZE);
+    const uint radixSortBlockSize = (numElements <= REORDER_SMALL_BUILDER_THRESHOLD) ?
+        RADIX_SORT_BLOCK_SIZE_SMALL_BUILDER : RADIX_SORT_BLOCK_SIZE_NORMAL;
+    const uint numberOfBlocks = RoundUpQuotient(numActiveElements, radixSortBlockSize);
     const uint numLookBacks = numberOfBlocks * BIN_SIZE;
 
     // Vectorized initialization outperforms scalar 1:1 mapping
@@ -436,11 +439,12 @@ void OnesweepReorderImpl(
 void InitOnesweepReorder(
     uint globalId: SV_DispatchThreadID)
 {
-    const uint numPrimitives = FetchTaskCounter(
+    const uint numActivePrims = FetchTaskCounter(
         ShaderConstants.offsets.encodeTaskCounter + ENCODE_TASK_COUNTER_PRIM_REFS_OFFSET);
+    const uint numPrims = ShaderRootConstants.NumElements();
     const uint lookBackOffset = ShaderConstants.offsets.prefixSumAtomicFlags;
 
-    InitOnesweepReorderImpl(globalId, numPrimitives, lookBackOffset);
+    InitOnesweepReorderImpl(globalId, numPrims, numActivePrims, lookBackOffset);
 }
 
 //=====================================================================================================================
