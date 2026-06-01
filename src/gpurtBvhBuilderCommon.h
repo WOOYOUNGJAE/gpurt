@@ -48,7 +48,7 @@ enum class BuildPhaseFlags : uint32_t
     GenerateMortonCodes           = 1 << 3,
     MergeSort                     = 1 << 4,
     RadixSort                     = 1 << 5,
-    OnesweepRadixSort             = 1 << 6,
+    // Unused6                    = 1 << 6,
     BuildPLOC                     = 1 << 7,
     // Unused8                    = 1 << 8,
     PairCompression               = 1 << 9,
@@ -63,6 +63,7 @@ enum class BuildPhaseFlags : uint32_t
     BuildHPLOC                    = 1 << 17,
     EncodePrimitives              = 1 << 18,
     BuildDumpEvents               = 1 << 19,
+    OnesweepRadixSort             = 1 << 20,
 #if GPURT_BUILD_RTIP3_1
     RefitInstanceBounds           = 1 << 21,
 #endif
