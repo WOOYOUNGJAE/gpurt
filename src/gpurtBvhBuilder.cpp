@@ -1166,7 +1166,7 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     uint32 mortonCodesSorted = 0xFFFFFFFF;
     uint32 primIndicesSortedSwap = 0xFFFFFFFF;
     uint32 histogram = 0xFFFFFFFF;
-	uint32 histogramTaskCounter = 0xFFFFFFFF;
+	uint32 onesweepTaskCounter = 0xFFFFFFFF;
     uint32 tempKeys = 0xFFFFFFFF;
     uint32 tempVals = 0xFFFFFFFF;
     uint32 atomicFlags = 0xFFFFFFFF;
@@ -1462,7 +1462,7 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
 		atomicFlags = ReserveBytes(numDynamicBlocks * sizeof(uint32), &runningOffset);
         
         // device histogram task counter (int)
-        histogramTaskCounter = ReserveBytes(sizeof(uint32), &runningOffset);
+        onesweepTaskCounter = ReserveBytes(sizeof(uint32), &runningOffset);
     }
     // Reduce-Then-Scan Radix Sort
     else
@@ -1548,7 +1548,7 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
         pOffsets->primIndicesSortedSwap = primIndicesSortedSwap;
         pOffsets->propagationFlags = propagationFlags;
         pOffsets->histogram = histogram;
-		pOffsets->histogramTaskCounter = histogramTaskCounter;
+		pOffsets->onesweepTaskCounter = onesweepTaskCounter;
         pOffsets->tempKeys = tempKeys;
         pOffsets->tempVals = tempVals;
         pOffsets->dynamicBlockIndex = dynamicBlockIndex;
@@ -5275,7 +5275,10 @@ void BvhBuilder::OnesweepReorder(uint32 passIdx)
     
     BindPipeline(pipelineType);
 
-    const uint32 numBlocks = 
+    const uint32 wavesPerSimd = 16;
+    const uint32 numOptimalGroups = 
+        m_backend.GetOptimalNumThreadGroups(m_onesweepRadixSortConfig.workGroupSizeReorder) * wavesPerSimd;
+    const uint32 numDataGroups = 
         Util::RoundUpQuotient(m_buildConfig.maxNumPrimitives, keysPerBlock);
 
     BuildShaderRootConstants1 shaderConstants =
@@ -5286,8 +5289,8 @@ void BvhBuilder::OnesweepReorder(uint32 passIdx)
     WriteBuildBufferBindings(shaderConstants);
 
     RGP_PUSH_MARKER("Onesweep Reorder");
-    Dispatch(numBlocks);
-
+    Dispatch(Util::Min(numOptimalGroups, numDataGroups));
+    
     RGP_POP_MARKER();
 }
 

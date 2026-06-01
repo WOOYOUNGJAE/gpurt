@@ -148,7 +148,7 @@ void InitGHistogram(
     const uint nIteration = Settings.useMortonCode30 ? 32 / N_RADIX : 64 / N_RADIX;
     const uint numHistogramElements = nIteration * BIN_SIZE;
     
-    const uint counterOffset = ShaderConstants.offsets.histogramTaskCounter;
+    const uint counterOffset = ShaderConstants.offsets.onesweepTaskCounter;
     const uint gpSumOffset = ShaderConstants.offsets.histogram;
 
     InitGHistogramImpl(globalId, numHistogramElements, counterOffset, gpSumOffset);
@@ -166,7 +166,7 @@ void GHistogram(
     const uint numPrimitives = FetchTaskCounter(
         ShaderConstants.offsets.encodeTaskCounter + ENCODE_TASK_COUNTER_PRIM_REFS_OFFSET);
     const uint inputKeysOffset = ShaderConstants.offsets.mortonCodes;
-    const uint counterOffset = ShaderConstants.offsets.histogramTaskCounter;
+    const uint counterOffset = ShaderConstants.offsets.onesweepTaskCounter;
     const uint gpSumOffset = ShaderConstants.offsets.histogram;
 
     GHistogramImpl(localId, numPrimitives, inputKeysOffset, counterOffset, gpSumOffset);

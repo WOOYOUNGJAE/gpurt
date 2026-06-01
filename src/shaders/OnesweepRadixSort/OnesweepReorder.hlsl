@@ -162,12 +162,18 @@ void InitOnesweepReorderImpl(
     uint globalId,
     uint numElements,
     uint numActiveElements,
+    uint counterOffset,
     uint lookBackOffset)
 {
     const uint radixSortBlockSize = (numElements <= REORDER_SMALL_BUILDER_THRESHOLD) ?
         RADIX_SORT_BLOCK_SIZE_SMALL_BUILDER : RADIX_SORT_BLOCK_SIZE_NORMAL;
     const uint numberOfBlocks = RoundUpQuotient(numActiveElements, radixSortBlockSize);
     const uint numLookBacks = numberOfBlocks * BIN_SIZE;
+
+    if(globalId == 0)
+    {
+        ScratchBuffer.Store<uint>(counterOffset, 0);
+    }
 
     // Vectorized initialization outperforms scalar 1:1 mapping
     // Note: Since BIN_SIZE is multiple of 4, numLookBacks is guaranteed to be aligned to 16 bytes.
@@ -442,9 +448,10 @@ void InitOnesweepReorder(
     const uint numActivePrims = FetchTaskCounter(
         ShaderConstants.offsets.encodeTaskCounter + ENCODE_TASK_COUNTER_PRIM_REFS_OFFSET);
     const uint numPrims = ShaderRootConstants.NumElements();
+    const uint counterOffset = ShaderConstants.offsets.onesweepTaskCounter;
     const uint lookBackOffset = ShaderConstants.offsets.prefixSumAtomicFlags;
 
-    InitOnesweepReorderImpl(globalId, numPrims, numActivePrims, lookBackOffset);
+    InitOnesweepReorderImpl(globalId, numPrims, numActivePrims, counterOffset, lookBackOffset);
 }
 
 //=====================================================================================================================
@@ -463,18 +470,12 @@ void SwapUint(
 [RootSignature(RootSig)]
 [numthreads(REORDER_NUMBER_OF_THREADS_PER_BLOCK, 1, 1)]
 void OnesweepReorder(
-    uint localId: SV_GroupThreadID,
-    uint groupId: SV_GroupId)
+    uint localId: SV_GroupThreadID)
 {
     const uint numPrimitives = FetchTaskCounter(
         ShaderConstants.offsets.encodeTaskCounter + ENCODE_TASK_COUNTER_PRIM_REFS_OFFSET);
     const uint numberOfBlocks = RoundUpQuotient(numPrimitives, RADIX_SORT_BLOCK_SIZE);
 
-    // Early termination
-    // Handle mismatch between dispatched threads and active primitives caused by early pair compression. 
-    // (Note: Can also be resolved via Indirect Dispatch)
-    if(groupId >= numberOfBlocks) return;
-    
     uint inputKeysOffset = ShaderConstants.offsets.mortonCodes;
     uint outputKeysOffset = ShaderConstants.offsets.mortonCodesSorted;
     uint inputValuesOffset = ShaderConstants.offsets.primIndicesSorted;
@@ -489,16 +490,29 @@ void OnesweepReorder(
 
     const uint gpSumOffset = ShaderConstants.offsets.histogram;
     const uint lookBackOffset = ShaderConstants.offsets.prefixSumAtomicFlags;
+    const uint counterOffset = ShaderConstants.offsets.onesweepTaskCounter;
 
-    OnesweepReorderImpl(localId,
-                        groupId,
-                        numPrimitives,
-                        inputKeysOffset,
-                        outputKeysOffset,
-                        inputValuesOffset,
-                        outputValuesOffset,
-                        gpSumOffset,
-                        lookBackOffset,
-                        iteration);
+    uint groupId;
+    for(;;){
+        if(localId == 0) {
+            ScratchBuffer.InterlockedAdd(counterOffset, 1, pSum[0]);
+        }
+        GroupMemoryBarrierWithGroupSync();
+        groupId = pSum[0];
+        GroupMemoryBarrierWithGroupSync();
+
+        if(groupId >= numberOfBlocks) break;
+
+        OnesweepReorderImpl(localId,
+                            groupId,
+                            numPrimitives,
+                            inputKeysOffset,
+                            outputKeysOffset,
+                            inputValuesOffset,
+                            outputValuesOffset,
+                            gpSumOffset,
+                            lookBackOffset,
+                            iteration);
+    }
 }
 #endif

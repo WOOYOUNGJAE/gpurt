@@ -69,7 +69,7 @@ struct RayTracingScratchDataOffsets
     uint32 batchIndices;
     uint32 updateStack;
     uint32 histogram;
-    uint32 histogramTaskCounter;
+    uint32 onesweepTaskCounter; // Onesweep radix sort only
     uint32 tempKeys;
     uint32 tempVals;
     uint32 dynamicBlockIndex;
