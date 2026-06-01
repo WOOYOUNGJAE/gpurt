@@ -946,8 +946,7 @@ void MergeScratchNodes(
         }
         else
 #endif
-        if (EnableLatePairCompression()
-        )
+        if (EnableLatePairCompression())
         {
             const bool useCostCheck = Settings.enablePairCostCheck;
 
