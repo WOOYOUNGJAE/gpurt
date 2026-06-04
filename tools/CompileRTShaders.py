@@ -166,6 +166,7 @@ bvhShaderConfigs = [
     ShaderConfig(path="BuildParallel.hlsl", entryPoint="BuildBvh", outputName="BuildParallelRtip3x", defines="GPURT_BUILD_PARALLEL_ENABLE_RTIP3=1"),
 #endif
     ShaderConfig(path="BuildHPLOC.hlsl", entryPoint="BuildHPLOC"),
+    ShaderConfig(path="BuildFusedCollapsingHPLOC.hlsl", entryPoint="BuildFusedCollapsingHPLOC"),
     ShaderConfig(path="BuildFastAgglomerativeLbvh.hlsl", entryPoint="BuildFastAgglomerativeLbvh"),
 #if GPURT_BUILD_RTIP3_1
     ShaderConfig(path="BuildTrivialBvh.hlsl", entryPoint="BuildTrivialBvh"),

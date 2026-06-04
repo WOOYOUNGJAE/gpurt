@@ -56,9 +56,9 @@ struct RayTracingScratchDataOffsets
     uint32 currentState;        // BVH PLOC build only
     uint32 plocTaskQueueCounter;// BVH PLOC build only
     uint32 atomicFlagsPloc;     // BVH PLOC build only
-    uint32 reserved0;
-    uint32 reserved1;
-    uint32 reserved2;
+    uint32 fcWideCounter;       // Fused Collapsing wide node counter
+    uint32 fcWideNodeClusterIndices;      // Fused Collapsing wide node Data (uint)
+    uint32 fcWideNodeClusterReferences;   // Fused Collapsing wide node Data (uint4 * 2)
     uint32 sceneBounds;
     uint32 mortonCodes;
     uint32 mortonCodesSorted;

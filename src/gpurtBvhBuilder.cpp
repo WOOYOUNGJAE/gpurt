@@ -1160,6 +1160,11 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     uint32 neighbourIndices = 0xFFFFFFFF;
     uint32 atomicFlagsPloc = 0xFFFFFFFF;
 
+    // Fused Collapsing (FC/fc)
+    uint32 fcWideCounter               = 0xFFFFFFFF;
+    uint32 fcWideNodeClusterIndices    = 0xFFFFFFFF; // TODO : move this to QBVH section
+    uint32 fcWideNodeClusterReferences = 0xFFFFFFFF; // TODO : move this to QBVH section
+
     //--------------------------------------------
     // QBVH
     uint32 qbvhGlobalStack = 0;
@@ -1480,6 +1485,13 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
         // TODO: calculate number of blocks based on KEYS_PER_THREAD
         atomicFlagsPloc = ReserveBytes(aabbCount * RayTracingPLOCFlags, &runningOffset);
     }
+
+    // if (m_buildConfig.enableFusedCollapsing) // TODO
+    {
+        fcWideCounter = ReserveBytes(sizeof(uint32), &runningOffset);
+        fcWideNodeClusterIndices = ReserveBytes(aabbCount * sizeof(uint), &runningOffset); // TODO: move this to QBVH(HwEncode) section
+        fcWideNodeClusterReferences = ReserveBytes(aabbCount * sizeof(uint4) * 2, &runningOffset); // TODO: move this to QBVH(HwEncode) section
+    }
     bvh2PhaseMaxSize = Util::Max(bvh2PhaseMaxSize, runningOffset);
 
     // If the caller requested offsets, return them.
@@ -1528,6 +1540,10 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
         pOffsets->primCompNodeIndices    = primCompNodeIndices;
         pOffsets->primCompNodeIndicesEnd = primCompNodeIndicesEnd;
 #endif
+
+        pOffsets->fcWideCounter = fcWideCounter;
+        pOffsets->fcWideNodeClusterIndices = fcWideNodeClusterIndices;
+        pOffsets->fcWideNodeClusterReferences = fcWideNodeClusterReferences;
     }
 
     ScratchBufferInfo info;

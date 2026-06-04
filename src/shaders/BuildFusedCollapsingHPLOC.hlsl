@@ -34,7 +34,7 @@
 #include "../shadersClean/build/BuildCommonScratch.hlsli"
 #endif
 
-// Only RtBvhInstanceMode==FilterNode(1), enableInstanceRebraid 0, 
+// Only for BVH8, RtBvhInstanceMode==FilterNode(1), enableInstanceRebraid 0, 
 
 //=====================================================================================================================
 // This function indicates a distance metric between the two keys where each internal node splits the hierarchy
@@ -102,10 +102,35 @@ struct CacheEntry
     float boundsMaxZ[HPLOC_BUILD_THREADGROUP_SIZE];
     uint  clusterId[HPLOC_BUILD_THREADGROUP_SIZE];
     uint  neighbor[HPLOC_BUILD_THREADGROUP_SIZE];
+    // for fused collapsing
+    uint refereceX[HPLOC_BUILD_THREADGROUP_SIZE];
+    uint refereceY[HPLOC_BUILD_THREADGROUP_SIZE];
+    uint refereceZ[HPLOC_BUILD_THREADGROUP_SIZE];
+    uint refereceW[HPLOC_BUILD_THREADGROUP_SIZE];
 };
 
 groupshared CacheEntry ThreadGroupCache;
 #endif
+//======================================================================================================================
+void WriteCachedReferences(uint threadId, uint4 refs)
+{
+    ThreadGroupCache.refereceX[threadId] = refs.x;
+    ThreadGroupCache.refereceY[threadId] = refs.y;
+    ThreadGroupCache.refereceZ[threadId] = refs.z;
+    ThreadGroupCache.refereceW[threadId] = refs.w;
+}
+
+//======================================================================================================================
+uint4 ReadCachedReferences(uint threadId)
+{
+    uint4 refs;
+    refs.x = ThreadGroupCache.refereceX[threadId];
+    refs.y = ThreadGroupCache.refereceY[threadId];
+    refs.z = ThreadGroupCache.refereceZ[threadId];
+    refs.w = ThreadGroupCache.refereceW[threadId];
+
+    return refs;
+}
 
 //======================================================================================================================
 void WriteCachedBounds(uint threadId, BoundingBox bbox)
@@ -173,6 +198,15 @@ int DecodeRelativeOffset(const int localID, const uint offset, const uint ID)
 {
     const uint off = (offset >> 1) + 1;
     return localID + (((offset ^ ID) % 2 == 0) ? (int)off : -(int)off);
+}
+
+//=====================================================================================================================
+// Encodes the sizes of two sets into a switch-case tag for union handling.
+// Packs the sizes of two sets into a 6-bit tag: (sizeA << 3) | sizeB.
+int EncodeReferenceSetCounts(const uint setCounts0, const uint setCounts1)
+{
+    const int refSize = (setCounts0 << 3) | setCounts1;
+    return refSize;
 }
 
 //=====================================================================================================================
@@ -253,7 +287,7 @@ uint InitClusterList(
 }
 
 //=====================================================================================================================
-void BuildHPLOCImpl(
+void BuildFusedCollapsingHPLOCImpl(
     const uint globalId,
     const uint localId,
     const uint numActivePrims)
@@ -279,6 +313,9 @@ void BuildHPLOCImpl(
 
     const uint waveSize = WaveGetLaneCount();
     const uint halfWaveSize = waveSize / 2;
+
+    // Initialize CacheEntry's referece data
+    WriteCachedReferences(WaveGetLaneIndex(), 0xffffffff.xxxx);
 
     while (WaveActiveBallot64(laneActive))
     {
@@ -386,7 +423,8 @@ void BuildHPLOCImpl(
                     UpdateNeighborIndex(clusterIndex, minAreaIndex);
                 }
 
-                uint newClusterId = -1;
+                uint newClusterId   = -1;
+                uint4 newReferences = 0xffffffff.xxxx;
 
                 if (clusterIndex < clusterSize)
                 {
@@ -410,7 +448,8 @@ void BuildHPLOCImpl(
                     internalNodeOffset = WaveReadLaneFirst(internalNodeOffset);
                     const uint mergedNodeIndex = ((numInternalNodes - 1) - internalNodeOffset) - waveAllocIndex;
 
-                    newClusterId = ReadClusterId(clusterIndex);
+                    newClusterId  = ReadClusterId(clusterIndex);
+                    newReferences = ReadCachedReferences(clusterIndex);
 
                     if (merge)
                     {
@@ -419,6 +458,56 @@ void BuildHPLOCImpl(
                             uint clusterId0 = ReadClusterId(neighbor);
                             uint clusterId1 = ReadClusterId(clusterIndex);
 
+                            uint4 refs0 = ReadCachedReferences(neighbor);
+                            uint4 refs1 = ReadCachedReferences(clusterIndex);
+                            uint numReferences0 = uint(refs0.x != 0xffffffff) + uint(refs0.y != 0xffffffff) + uint(refs0.z != 0xffffffff) + uint(refs0.w != 0xffffffff);
+                            uint numReferences1 = uint(refs1.x != 0xffffffff) + uint(refs1.y != 0xffffffff) + uint(refs1.z != 0xffffffff) + uint(refs1.w != 0xffffffff);
+                            
+                            // Procedure 2 from Fused Collapsing paper
+                            // if |R| > k/2 or Root {clusterIdx = 2 * numPrims - 2 in paper} (k == 8)
+                            if (numReferences0 + numReferences1 > 4 || mergedNodeIndex == 0)
+                            {
+                                // TODO: Check whether the MSB used to identify mergedNodeIndex as an internal node is needed in subsequent phases.
+                                uint wideIdx = IncrementScratchCounter(ShaderConstants.offsets.fcWideCounter, 1);
+
+                                ScratchBuffer.Store<uint>(ShaderConstants.offsets.fcWideNodeClusterIndices + wideIdx * sizeof(uint), mergedNodeIndex);
+
+                                uint fcRefsBaseOffset = ShaderConstants.offsets.fcWideNodeClusterReferences + wideIdx * sizeof(uint4) * 2;
+                                ScratchBuffer.Store<uint4>(fcRefsBaseOffset, refs0);
+                                ScratchBuffer.Store<uint4>(fcRefsBaseOffset + sizeof(uint4), refs1);
+
+                                GPU_ASSERT(mergedNodeIndex != -1);
+                                newReferences.x = mergedNodeIndex;
+                            }
+                            else // |R| <= k/2
+                            {
+                                int refSetCounts = EncodeReferenceSetCounts(numReferences0, numReferences1);
+                                // Handles k = 8 only
+                                // Unroll all case of reference set counts for dynamic indexing in vector register.
+                                newReferences = refs0;                                
+                                switch (refSetCounts)
+                                {
+                                    // {0,0}, {0,1}, {0,2}, {0,3}, {0,4}, {1,0}, {1,1}, {1,2}, {1,3}, {2,0}, {2,1}, {2,2}, {3,0}, {3,1}, {4,0}
+                                    case (0 << 3) | 0:
+                                    case (0 << 3) | 1:
+                                    case (0 << 3) | 2:
+                                    case (0 << 3) | 3:
+                                    case (0 << 3) | 4: newReferences = refs1;                                                           break;
+                                    case (1 << 3) | 0:                                                                                  break;
+                                    case (1 << 3) | 1: newReferences.y = refs1.x;                                                       break;
+                                    case (1 << 3) | 2: newReferences.y = refs1.x; newReferences.z = refs1.y;                            break;
+                                    case (1 << 3) | 3: newReferences.y = refs1.x; newReferences.z = refs1.y; newReferences.w = refs1.z; break;
+                                    case (2 << 3) | 0:                                                                                  break;
+                                    case (2 << 3) | 1: newReferences.z = refs1.x;                                                       break;
+                                    case (2 << 3) | 2: newReferences.z = refs1.x; newReferences.w = refs1.y;                            break;
+                                    case (3 << 3) | 0:                                                                                  break;
+                                    case (3 << 3) | 1: newReferences.w = refs1.x;                                                       break;
+                                    case (4 << 3) | 0:                                                                                  break;
+                                    default : GPU_ASSERT(0); // unexpected case, should not happen
+                                }
+                            }
+                            
+                            // Check whether the cluster is internal.
                             const uint offset0 = (clusterId0 >> 31) == 0 ? numInternalNodes : 0;
                             const uint offset1 = (clusterId1 >> 31) == 0 ? numInternalNodes : 0;
 
@@ -468,6 +557,7 @@ void BuildHPLOCImpl(
                         else
                         {
                             newClusterId = -1;
+                            newReferences = 0xffffffff.xxxx; // mark refs as invalid
                         }
                     }
                 }
@@ -479,6 +569,7 @@ void BuildHPLOCImpl(
                 {
                     WriteClusterId(dstClusterIdx, newClusterId);
                     WriteCachedBounds(dstClusterIdx, bbox);
+                    WriteCachedReferences(dstClusterIdx, newReferences);
                 }
 
                 // Make writes from MergeScratchNodes() visible to all threads
@@ -511,11 +602,11 @@ void BuildHPLOCImpl(
 
 #if NO_SHADER_ENTRYPOINT == 0
 //=====================================================================================================================
-// Main Function : BuildHPLOC
+// Main Function : BuildFusedCollapsingHPLOC
 //=====================================================================================================================
 [RootSignature(RootSig)]
 [numthreads(HPLOC_BUILD_THREADGROUP_SIZE, 1, 1)]
-void BuildHPLOC(
+void BuildFusedCollapsingHPLOC(
     uint localId : SV_GroupThreadID,
     uint globalId : SV_DispatchThreadID)
 {
@@ -546,7 +637,7 @@ void BuildHPLOC(
         {
             WriteRootNodeIndex(ShaderConstants.offsets.fastLBVHRootNodeIndex, rootNodeIndex);
         }
-        BuildHPLOCImpl(globalId, localId, numActivePrims);
+        BuildFusedCollapsingHPLOCImpl(globalId, localId, numActivePrims);
     }
 }
 #endif

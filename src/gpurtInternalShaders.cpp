@@ -110,6 +110,7 @@ const PipelineBuildInfo InternalPipelineBuildInfo[size_t(InternalRayTracingCsTyp
     PIPELINE_BUILD_BVH_INFO(BuildFastAgglomerativeLbvh),
     PIPELINE_BUILD_BVH_INFO(EncodeQuadNodes),
     PIPELINE_BUILD_BVH_INFO(BuildHPLOC),
+    PIPELINE_BUILD_BVH_INFO(BuildFusedCollapsingHPLOC),
 #if GPURT_BUILD_RTIP3_1
     PIPELINE_BUILD_INFO(BuildTrivialBvh),
     PIPELINE_BUILD_INFO(BuildSingleThreadGroup32),
