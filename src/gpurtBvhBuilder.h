@@ -244,6 +244,8 @@ private:
         bool                            enableEmitCompactSizeDispatch;
         bool                            nonInlinePostBuildEmits;
         uint32                          rebraidFactor;
+
+        bool                            enableFusedCollapsing;
     };
 
     BvhBuilder(

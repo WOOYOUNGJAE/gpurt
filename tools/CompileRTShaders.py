@@ -167,6 +167,7 @@ bvhShaderConfigs = [
 #endif
     ShaderConfig(path="BuildHPLOC.hlsl", entryPoint="BuildHPLOC"),
     ShaderConfig(path="BuildFusedCollapsingHPLOC.hlsl", entryPoint="BuildFusedCollapsingHPLOC"),
+    ShaderConfig(path="AssignFusedCollapsedIndices.hlsl", entryPoint="AssignFusedCollapsedIndices"),
     ShaderConfig(path="BuildFastAgglomerativeLbvh.hlsl", entryPoint="BuildFastAgglomerativeLbvh"),
 #if GPURT_BUILD_RTIP3_1
     ShaderConfig(path="BuildTrivialBvh.hlsl", entryPoint="BuildTrivialBvh"),

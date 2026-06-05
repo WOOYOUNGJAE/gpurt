@@ -35,6 +35,7 @@
 #endif
 
 // Only for BVH8, RtBvhInstanceMode==FilterNode(1), enableInstanceRebraid 0, 
+#define BVH_K 8
 
 //=====================================================================================================================
 // This function indicates a distance metric between the two keys where each internal node splits the hierarchy
@@ -465,19 +466,19 @@ void BuildFusedCollapsingHPLOCImpl(
                             
                             // Procedure 2 from Fused Collapsing paper
                             // if |R| > k/2 or Root {clusterIdx = 2 * numPrims - 2 in paper} (k == 8)
-                            if (numReferences0 + numReferences1 > 4 || mergedNodeIndex == 0)
+                            if (numReferences0 + numReferences1 > (BVH_K / 2) || mergedNodeIndex == 0)
                             {
-                                // TODO: Check whether the MSB used to identify mergedNodeIndex as an internal node is needed in subsequent phases.
                                 uint wideIdx = IncrementScratchCounter(ShaderConstants.offsets.fcWideCounter, 1);
 
-                                ScratchBuffer.Store<uint>(ShaderConstants.offsets.fcWideNodeClusterIndices + wideIdx * sizeof(uint), mergedNodeIndex);
+                                // Set the MSB to indicate that this cluster represents an internal node, for wide node indexing phase
+                                ScratchBuffer.Store<uint>(ShaderConstants.offsets.fcWideNodeClusterIndices + wideIdx * sizeof(uint), mergedNodeIndex | bit(31));
 
                                 uint fcRefsBaseOffset = ShaderConstants.offsets.fcWideNodeClusterReferences + wideIdx * sizeof(uint4) * 2;
                                 ScratchBuffer.Store<uint4>(fcRefsBaseOffset, refs0);
                                 ScratchBuffer.Store<uint4>(fcRefsBaseOffset + sizeof(uint4), refs1);
 
                                 GPU_ASSERT(mergedNodeIndex != -1);
-                                newReferences.x = mergedNodeIndex;
+                                newReferences = uint4(mergedNodeIndex, 0xffffffff, 0xffffffff, 0xffffffff);
                             }
                             else // |R| <= k/2
                             {
@@ -560,7 +561,7 @@ void BuildFusedCollapsingHPLOCImpl(
                             newReferences = 0xffffffff.xxxx; // mark refs as invalid
                         }
                     }
-                }
+                } 
 
                 clusterSize = WaveActiveCountBits(newClusterId != -1);
                 const uint dstClusterIdx = WavePrefixCountBits(newClusterId != -1);
@@ -641,3 +642,5 @@ void BuildFusedCollapsingHPLOC(
     }
 }
 #endif
+
+#undef BVH_K

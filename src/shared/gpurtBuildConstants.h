@@ -59,6 +59,10 @@ struct RayTracingScratchDataOffsets
     uint32 fcWideCounter;       // Fused Collapsing wide node counter
     uint32 fcWideNodeClusterIndices;      // Fused Collapsing wide node Data (uint)
     uint32 fcWideNodeClusterReferences;   // Fused Collapsing wide node Data (uint4 * 2)
+    uint32 fcInternalNodeAssignmentCounter;
+    uint32 fcPrimNodeAssignmentCounter;
+    uint32 fcWideBvhInternalNodeOutputIndices;
+    uint32 fcWideBvhPrimNodeOutputIndices;
     uint32 sceneBounds;
     uint32 mortonCodes;
     uint32 mortonCodesSorted;

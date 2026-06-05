@@ -22,7 +22,7 @@
  *  SOFTWARE.
  *
  **********************************************************************************************************************/
-
+bool enableFusedCollapsing = true; // TODO : Temporary varialble
 #include "palInlineFuncs.h"
 #include "palCmdBuffer.h"
 #include "palMetroHash.h"
@@ -1164,6 +1164,11 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     uint32 fcWideCounter               = 0xFFFFFFFF;
     uint32 fcWideNodeClusterIndices    = 0xFFFFFFFF; // TODO : move this to QBVH section
     uint32 fcWideNodeClusterReferences = 0xFFFFFFFF; // TODO : move this to QBVH section
+    // FC Index Assignment Phase
+    uint32 fcInternalNodeAssignmentCounter = 0xFFFFFFFF;
+    uint32 fcPrimNodeAssignmentCounter = 0xFFFFFFFF;
+    uint32 fcWideBvhInternalNodeOutputIndices = 0xFFFFFFFF;
+    uint32 fcWideBvhPrimNodeOutputIndices = 0xFFFFFFFF;
 
     //--------------------------------------------
     // QBVH
@@ -1488,9 +1493,17 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
 
     // if (m_buildConfig.enableFusedCollapsing) // TODO
     {
+        // Fused Collapsing PLOC
         fcWideCounter = ReserveBytes(sizeof(uint32), &runningOffset);
         fcWideNodeClusterIndices = ReserveBytes(aabbCount * sizeof(uint), &runningOffset); // TODO: move this to QBVH(HwEncode) section
         fcWideNodeClusterReferences = ReserveBytes(aabbCount * sizeof(uint4) * 2, &runningOffset); // TODO: move this to QBVH(HwEncode) section
+        // Index Assignment
+        fcInternalNodeAssignmentCounter = ReserveBytes(sizeof(uint32), &runningOffset);
+        fcPrimNodeAssignmentCounter = ReserveBytes(sizeof(uint32), &runningOffset);
+        fcWideBvhInternalNodeOutputIndices = ReserveBytes(sizeof(uint32) * GetNumInternalNodeCount(), &runningOffset);
+        fcWideBvhPrimNodeOutputIndices = ReserveBytes(sizeof(uint32) * GetMaxNumLeafNodes(), &runningOffset);
+
+        // GetNumInternalNodeCount() vs m_buildConfig.maxNumPrimitives; is different? 
     }
     bvh2PhaseMaxSize = Util::Max(bvh2PhaseMaxSize, runningOffset);
 
@@ -1544,6 +1557,10 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
         pOffsets->fcWideCounter = fcWideCounter;
         pOffsets->fcWideNodeClusterIndices = fcWideNodeClusterIndices;
         pOffsets->fcWideNodeClusterReferences = fcWideNodeClusterReferences;
+        pOffsets->fcInternalNodeAssignmentCounter = fcInternalNodeAssignmentCounter;
+        pOffsets->fcPrimNodeAssignmentCounter = fcPrimNodeAssignmentCounter;
+        pOffsets->fcWideBvhInternalNodeOutputIndices = fcWideBvhInternalNodeOutputIndices;
+        pOffsets->fcWideBvhPrimNodeOutputIndices = fcWideBvhPrimNodeOutputIndices;
     }
 
     ScratchBufferInfo info;
@@ -1976,6 +1993,13 @@ void BvhBuilder::InitBuildConfig(
         m_emitCompactDstGpuVa = 0;
         m_buildConfig.nonInlinePostBuildEmits = true;
         m_buildConfig.enableEmitCompactSizeDispatch = true;
+    }
+
+    // Fused Collapsing only allowed for {BLAS & !update & bvh8 & !rebraid & filterInstanceNode}
+    if (enableFusedCollapsing && UpdateAllowed() == false || (m_buildConfig.topLevelBuild == false))
+    {
+        m_buildConfig.enableFusedCollapsing = true;
+        m_buildConfig.enableRebraid = false;
     }
 }
 
