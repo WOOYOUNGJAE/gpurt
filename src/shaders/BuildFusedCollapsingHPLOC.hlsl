@@ -22,8 +22,6 @@
  *  SOFTWARE.
  *
  **********************************************************************************************************************/
-#if NO_SHADER_ENTRYPOINT == 0
-
 //=====================================================================================================================
 #include "../shadersClean/common/ShaderDefs.hlsli"
 
@@ -32,7 +30,6 @@
 
 #include "../shadersClean/common/Common.hlsli"
 #include "../shadersClean/build/BuildCommonScratch.hlsli"
-#endif
 
 // Only for BVH8, RtBvhInstanceMode==FilterNode(1), enableInstanceRebraid 0, 
 #define BVH_K 8
@@ -601,7 +598,6 @@ void BuildFusedCollapsingHPLOCImpl(
     }
 }
 
-#if NO_SHADER_ENTRYPOINT == 0
 //=====================================================================================================================
 // Main Function : BuildFusedCollapsingHPLOC
 //=====================================================================================================================
@@ -641,6 +637,5 @@ void BuildFusedCollapsingHPLOC(
         BuildFusedCollapsingHPLOCImpl(globalId, localId, numActivePrims);
     }
 }
-#endif
 
 #undef BVH_K

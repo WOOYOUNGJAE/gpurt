@@ -484,72 +484,86 @@ void BvhBatcher::BuildMultiDispatch(Util::Span<BvhBuilder> builders)
             builder.WriteInternalTimestamp();
         }
     }
-    if (PhaseEnabled(BuildPhaseFlags::BuildFastAgglomerativeLbvh))
-    {
-        Barrier();
-        BuildPhase(BuildPhaseFlags::BuildFastAgglomerativeLbvh, builders, &BvhBuilder::BuildFastAgglomerativeLbvh);
-    }
-    if (PhaseEnabled(BuildPhaseFlags::BuildHPLOC))
+    if (PhaseEnabled(BuildPhaseFlags::BuildFusedCollapsingWideBvh))
     {
         Barrier(BarrierFlagSyncIndirectArg | BarrierFlagSyncDispatch);
-        BuildPhase(BuildPhaseFlags::BuildHPLOC, builders, &BvhBuilder::BuildHPLOC);
-    }
-    if (PhaseEnabled(BuildPhaseFlags::BuildPLOC))
-    {
-        // INTERNAL_TIMESTAMP_BEGIN
-        Barrier();
-        for (auto& builder : builders)
-        {
-            builder.WriteInternalTimestamp();
-        }
+        BuildPhase(BuildPhaseFlags::BuildFusedCollapsingWideBvh, builders, &BvhBuilder::BuildFusedCollapsingWideBvh);
 
-        Barrier();
-        const uint32 wavesPerSimd = builders.size() == 1 ? 8U : 1U;
-        BuildFunction(BuildPhaseFlags::BuildPLOC, builders, [wavesPerSimd](BvhBuilder& builder)
+        // TODO : Temporal Code for complete blas phase
         {
-            builder.BuildPLOC(wavesPerSimd);
-        });
-
-        // INTERNAL_TIMESTAMP_END
-        Barrier();
-        for (auto& builder : builders)
-        {
-            builder.WriteInternalTimestamp();
+            Barrier();
+            BuildPhase(BuildPhaseFlags::EncodeHwBvh, builders, &BvhBuilder::EncodeHwBvh);
         }
     }
-    if (PhaseEnabled(BuildPhaseFlags::PairCompression))
+    else
     {
-        Barrier();
-        BuildPhase(BuildPhaseFlags::PairCompression, builders, &BvhBuilder::PairCompression);
-    }
+        if (PhaseEnabled(BuildPhaseFlags::BuildFastAgglomerativeLbvh))
+        {
+            Barrier();
+            BuildPhase(BuildPhaseFlags::BuildFastAgglomerativeLbvh, builders, &BvhBuilder::BuildFastAgglomerativeLbvh);
+        }
+        if (PhaseEnabled(BuildPhaseFlags::BuildHPLOC))
+        {
+            Barrier(BarrierFlagSyncIndirectArg | BarrierFlagSyncDispatch);
+            BuildPhase(BuildPhaseFlags::BuildHPLOC, builders, &BvhBuilder::BuildHPLOC);
+        }
+        if (PhaseEnabled(BuildPhaseFlags::BuildPLOC))
+        {
+            // INTERNAL_TIMESTAMP_BEGIN
+            Barrier();
+            for (auto& builder : builders)
+            {
+                builder.WriteInternalTimestamp();
+            }
+
+            Barrier();
+            const uint32 wavesPerSimd = builders.size() == 1 ? 8U : 1U;
+            BuildFunction(BuildPhaseFlags::BuildPLOC, builders, [wavesPerSimd](BvhBuilder& builder)
+            {
+                builder.BuildPLOC(wavesPerSimd);
+            });
+
+            // INTERNAL_TIMESTAMP_END
+            Barrier();
+            for (auto& builder : builders)
+            {
+                builder.WriteInternalTimestamp();
+            }
+        }
+        if (PhaseEnabled(BuildPhaseFlags::PairCompression))
+        {
+            Barrier();
+            BuildPhase(BuildPhaseFlags::PairCompression, builders, &BvhBuilder::PairCompression);
+        }
 #if GPURT_BUILD_RTIP3_1
-    if (PhaseEnabled(BuildPhaseFlags::RefitInstanceBounds))
-    {
-        Barrier();
-        BuildPhase(BuildPhaseFlags::RefitInstanceBounds, builders, &BvhBuilder::RefitInstanceBounds);
-    }
+        if (PhaseEnabled(BuildPhaseFlags::RefitInstanceBounds))
+        {
+            Barrier();
+            BuildPhase(BuildPhaseFlags::RefitInstanceBounds, builders, &BvhBuilder::RefitInstanceBounds);
+        }
 #endif
-    if (PhaseEnabled(BuildPhaseFlags::EncodeHwBvh))
-    {
-        Barrier();
-        BuildPhase(BuildPhaseFlags::EncodeHwBvh, builders, &BvhBuilder::EncodeHwBvh);
-    }
+        if (PhaseEnabled(BuildPhaseFlags::EncodeHwBvh))
+        {
+            Barrier();
+            BuildPhase(BuildPhaseFlags::EncodeHwBvh, builders, &BvhBuilder::EncodeHwBvh);
+        }
 #if GPURT_BUILD_RTIP3_1
-    bool syncedIndirectArgs = false;
-    if (PhaseEnabled(BuildPhaseFlags::CompressPrims))
-    {
-        Barrier(BarrierFlagSyncIndirectArg | BarrierFlagSyncDispatch);
-        syncedIndirectArgs = true;
-        BuildPhase(BuildPhaseFlags::CompressPrims, builders, &BvhBuilder::CompressPrims);
-    }
-    if (PhaseEnabled(BuildPhaseFlags::RefitOrientedBounds))
-    {
-        const uint32 barrierFlags =
-            BarrierFlagSyncDispatch | (syncedIndirectArgs ? 0 : BarrierFlagSyncIndirectArg);
-        Barrier(barrierFlags);
-        BuildPhase(BuildPhaseFlags::RefitOrientedBounds, builders, &BvhBuilder::RefitOrientedBounds);
-    }
+        bool syncedIndirectArgs = false;
+        if (PhaseEnabled(BuildPhaseFlags::CompressPrims))
+        {
+            Barrier(BarrierFlagSyncIndirectArg | BarrierFlagSyncDispatch);
+            syncedIndirectArgs = true;
+            BuildPhase(BuildPhaseFlags::CompressPrims, builders, &BvhBuilder::CompressPrims);
+        }
+        if (PhaseEnabled(BuildPhaseFlags::RefitOrientedBounds))
+        {
+            const uint32 barrierFlags =
+                BarrierFlagSyncDispatch | (syncedIndirectArgs ? 0 : BarrierFlagSyncIndirectArg);
+            Barrier(barrierFlags);
+            BuildPhase(BuildPhaseFlags::RefitOrientedBounds, builders, &BvhBuilder::RefitOrientedBounds);
+        }
 #endif
+    }
 }
 
 #if GPURT_BUILD_RTIP3_1

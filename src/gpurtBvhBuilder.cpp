@@ -1188,6 +1188,8 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     //--------------------------------------------
     // QBVH
     uint32 qbvhGlobalStack = 0;
+
+    // If Fused Collapsing is enabled, reuse this location to store the wide node count, instead of its original QBVH-phase purpose.
     uint32 qbvhGlobalStackPtrs = 0;
 #if GPURT_BUILD_RTIP3_1
     uint32 obbRefitStackPtrs = 0;
@@ -2010,11 +2012,13 @@ void BvhBuilder::InitBuildConfig(
         m_buildConfig.enableEmitCompactSizeDispatch = true;
     }
 
-    // Fused Collapsing only allowed for {BLAS & !update & bvh8 & !rebraid & filterInstanceNode}
+    // Fused Collapsing only allowed for {BLAS & !update & bvh8 & !rebraid & filterInstanceNode & !CompressPrims}
     if (enableFusedCollapsing && UpdateAllowed() == false || (m_buildConfig.topLevelBuild == false))
     {
-        m_buildConfig.enableFusedCollapsing = true;
+        m_buildConfig.enableFusedCollapsingWideBvh = true;
         m_buildConfig.enableRebraid = false;
+        m_buildConfig.primCompressionFlags = 0;
+        m_buildConfig.enableCompressPrimsPass = false;
     }
 }
 
@@ -4005,46 +4009,64 @@ BuildPhaseFlags BvhBuilder::EnabledPhases() const
                 flags |= BuildPhaseFlags::RadixSort;
             }
 
-            if ((m_buildConfig.buildMode == BvhBuildMode::Linear)
-                )
+            if (m_buildConfig.enableFusedCollapsingWideBvh)
             {
-                flags |= BuildPhaseFlags::BuildFastAgglomerativeLbvh;
-            }
-            if (m_buildConfig.buildMode == BvhBuildMode::HPLOC)
-            {
-                flags |= BuildPhaseFlags::BuildHPLOC;
-            }
-            if (m_buildConfig.buildMode == BvhBuildMode::PLOC)
-            {
-                flags |= BuildPhaseFlags::BuildPLOC;
-            }
-            if (AllowLatePairCompression())
-            {
-                flags |= BuildPhaseFlags::PairCompression;
-            }
+                flags |= BuildPhaseFlags::BuildFusedCollapsingWideBvh;
+                if (m_buildConfig.buildMode == BvhBuildMode::HPLOC)
+                {
+                    flags |= BuildPhaseFlags::BuildHPLOC;
+                }
+                if (m_buildConfig.buildMode == BvhBuildMode::PLOC)
+                {
+                    flags |= BuildPhaseFlags::BuildPLOC;
+                }
 
-            flags |= BuildPhaseFlags::EncodeHwBvh;
+                // TEMP
+                flags |= BuildPhaseFlags::EncodeHwBvh;
+            }
+            else // Origianl MultiDispatch method
+            {
+                if ((m_buildConfig.buildMode == BvhBuildMode::Linear)
+                    )
+                {
+                    flags |= BuildPhaseFlags::BuildFastAgglomerativeLbvh;
+                }
+                if (m_buildConfig.buildMode == BvhBuildMode::HPLOC)
+                {
+                    flags |= BuildPhaseFlags::BuildHPLOC;
+                }
+                if (m_buildConfig.buildMode == BvhBuildMode::PLOC)
+                {
+                    flags |= BuildPhaseFlags::BuildPLOC;
+                }
+                if (AllowLatePairCompression())
+                {
+                    flags |= BuildPhaseFlags::PairCompression;
+                }
+
+                flags |= BuildPhaseFlags::EncodeHwBvh;
 
 #if GPURT_BUILD_RTIP3_1
-            if (m_buildConfig.topLevelBuild == true)
-            {
-                if (m_deviceSettings.tlasRefittingMode == TlasRefittingMode::Late)
+                if (m_buildConfig.topLevelBuild == true)
                 {
-                    flags |= BuildPhaseFlags::RefitInstanceBounds;
+                    if (m_deviceSettings.tlasRefittingMode == TlasRefittingMode::Late)
+                    {
+                        flags |= BuildPhaseFlags::RefitInstanceBounds;
+                    }
                 }
-            }
-            else
-            {
-                if (Util::BitfieldIsSet(m_buildConfig.enableOrientedBoundingBoxes, uint32(m_buildArgs.inputs.type)))
+                else
                 {
-                    flags |= BuildPhaseFlags::RefitOrientedBounds;
+                    if (Util::BitfieldIsSet(m_buildConfig.enableOrientedBoundingBoxes, uint32(m_buildArgs.inputs.type)))
+                    {
+                        flags |= BuildPhaseFlags::RefitOrientedBounds;
+                    }
+                    if (m_buildConfig.enableCompressPrimsPass)
+                    {
+                        flags |= BuildPhaseFlags::CompressPrims;
+                    }
                 }
-                if (m_buildConfig.enableCompressPrimsPass)
-                {
-                    flags |= BuildPhaseFlags::CompressPrims;
-                }
-            }
 #endif
+            }
         }
     }
 
@@ -4358,6 +4380,55 @@ void BvhBuilder::BuildHPLOC()
 
     RGP_POP_MARKER();
     
+    INTERNAL_TIMESTAMP_END();
+}
+
+// =====================================================================================================================
+// Executes the build Fused Collapsing Wide BVH shader
+void BvhBuilder::BuildFusedCollapsingWideBvh()
+{
+    // Fused Collapsing Phase
+    if (m_buildConfig.buildMode == BvhBuildMode::HPLOC)
+    {
+        BindPipeline(InternalRayTracingCsType::BuildFusedCollapsingHPLOC);
+    }
+    else if (m_buildConfig.buildMode == BvhBuildMode::PLOC)
+    {
+        // TODO : Fused Collapsing Build PLOC not support yet
+        PAL_NOT_IMPLEMENTED();
+    }
+    else
+    {
+        PAL_NEVER_CALLED();
+    }
+
+    WriteBuildBufferBindings();
+
+    INTERNAL_TIMESTAMP_BEGIN();
+
+    RGP_PUSH_MARKER("Build Fused Collapsing HPLOC (numLeafNodes %u)", m_buildConfig.maxNumPrimitives);
+
+    if (m_buildConfig.enableEarlyPairCompression)
+    {
+        const gpusize indirectArgsGpuVa =
+            ScratchBufferBaseVa() + m_scratchOffsets.encodeTaskCounter + ENCODE_TASK_COUNTER_INDIRECT_ARGS;
+        DispatchIndirect(indirectArgsGpuVa);
+    }
+    else
+    {
+        Dispatch(Util::RoundUpQuotient(m_buildConfig.maxNumPrimitives, 32u));
+    }
+
+    RGP_POP_MARKER();
+
+    Barrier(BarrierFlagSyncIndirectArg | BarrierFlagSyncDispatch);
+
+    // Output Index Assignment Phase
+    BindPipeline(InternalRayTracingCsType::AssignFusedCollapsedIndices);
+    {
+        const gpusize indirectArgsGpuVa = ScratchBufferBaseVa() + m_scratchOffsets.fcWideCounter;
+        DispatchIndirect(indirectArgsGpuVa);
+    }
     INTERNAL_TIMESTAMP_END();
 }
 

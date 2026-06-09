@@ -50,7 +50,7 @@ enum class BuildPhaseFlags : uint32_t
     RadixSort                     = 1 << 5,
     // Unused6                    = 1 << 6,
     BuildPLOC                     = 1 << 7,
-    // Unused8                    = 1 << 8,
+    BuildFusedCollapsingWideBvh   = 1 << 8,
     PairCompression               = 1 << 9,
 #if GPURT_BUILD_RTIP3_1
     CompressPrims                 = 1 << 10,
@@ -78,7 +78,7 @@ enum class DetailedBuildPhaseFlags : uint64_t
     RadixSort                     = 1LLU << 5,
     // Unused6                    = 1LLU << 6,
     BuildPLOC                     = 1LLU << 7,
-    // Unused8                    = 1LLU << 8,
+    BuildFusedCollapsingWideBvh   = 1LLU << 8,
     PairCompression               = 1LLU << 9,
 #if GPURT_BUILD_RTIP3_1
     CompressPrims                 = 1LLU << 10,
@@ -133,6 +133,8 @@ static const char* BuildPhaseName(BuildPhaseFlags phase)
         return "RadixSort";
     case GpuRt::BuildPhaseFlags::BuildPLOC:
         return "BuildPLOC";
+    case GpuRt::BuildPhaseFlags::BuildFusedCollapsingWideBvh:
+        return "BuildFusedCollapsingWideBvh";
     case GpuRt::BuildPhaseFlags::PairCompression:
         return "PairCompression";
 #if GPURT_BUILD_RTIP3_1
@@ -175,6 +177,8 @@ static const char* DetailedBuildPhaseName(DetailedBuildPhaseFlags phase)
         return "RadixSort";
     case GpuRt::DetailedBuildPhaseFlags::BuildPLOC:
         return "BuildPLOC";
+    case GpuRt::DetailedBuildPhaseFlags::BuildFusedCollapsingWideBvh:
+        return "BuildFusedCollapsingWideBvh";
     case GpuRt::DetailedBuildPhaseFlags::PairCompression:
         return "PairCompression";
 #if GPURT_BUILD_RTIP3_1

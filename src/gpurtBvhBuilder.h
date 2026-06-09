@@ -250,7 +250,7 @@ private:
         bool                            nonInlinePostBuildEmits;
         uint32                          rebraidFactor;
 
-        bool                            enableFusedCollapsing;
+        bool                            enableFusedCollapsingWideBvh;
     };
 
     BvhBuilder(
@@ -375,6 +375,8 @@ private:
     void BuildFastAgglomerativeLbvh();
 
     void BuildHPLOC();
+
+    void BuildFusedCollapsingWideBvh();
 
     void UpdateQBVH();
 
