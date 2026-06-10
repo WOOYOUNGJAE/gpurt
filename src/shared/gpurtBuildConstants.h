@@ -59,10 +59,13 @@ struct RayTracingScratchDataOffsets
     uint32 fcWideCounter;       // Fused Collapsing wide node counter
     uint32 fcWideNodeClusterIndices;      // Fused Collapsing wide node Data (uint)
     uint32 fcWideNodeClusterReferences;   // Fused Collapsing wide node Data (uint4 * 2)
-    uint32 fcInternalNodeAssignmentCounter;
-    uint32 fcPrimNodeAssignmentCounter;
-    uint32 fcWideBvhInternalNodeOutputIndices;
-    uint32 fcWideBvhPrimNodeOutputIndices;
+    uint32 fcClusterReferences;
+    uint32 fcBoxNodeAssignmentCounter;
+    uint32 fcLeafNodeAssignmentCounter;
+    uint32 fcWideBvhBoxNodeMappingIndices;
+    uint32 fcWideBvhLeafNodeMappingIndices;
+    uint32 fcWideBvhBaseBoxNodeOffsets;
+    uint32 fcWideBvhBaseLeafNodeOffsets;
     uint32 sceneBounds;
     uint32 mortonCodes;
     uint32 mortonCodesSorted;
@@ -98,9 +101,9 @@ struct RayTracingScratchDataOffsets
     uint32 taskLoopCounters;
     uint32 debugCounters;
     uint32 primRefCount;
-
-    uint32 padding0;
-    uint32 padding1;
+    uint32 reserved9;
+    uint32 reserved10;
+    uint32 reserved11;
 };
 
 struct BuildShaderConstants

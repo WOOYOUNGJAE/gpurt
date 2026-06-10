@@ -183,7 +183,9 @@ set(gpurtHlsl
     DGF/EncodeDGF.hlsl
     ../shadersClean/build/DGF/DGFDecompression.hlsl
     BuildFusedCollapsingHPLOC.hlsl
+    FusedCollapsingTaskShader.hlsl
     AssignFusedCollapsedIndices.hlsl
+    WriteFusedCollapsedWideBvh.hlsl
 )
 set(otherDeps
     ../../gpurt/gpurtAccelStruct.h

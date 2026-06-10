@@ -6,6 +6,10 @@
 #include "../shadersClean/build/BuildRootSignature.hlsli"
 #include "../shadersClean/build/BuildCommonScratch.hlsli"
 
+inline uint PackBoxNodeMappingIndexBits(uint mappingIndex, uint childIndexInParent)
+{
+    return ((mappingIndex << 3) | (childIndexInParent & bits(3)));
+}
 
 //=====================================================================================================================
 // Main Function : AssignFusedCollapsedIndices
@@ -17,16 +21,19 @@ void AssignFusedCollapsedIndices(
     uint groupIdIn  : SV_GroupID,
     uint localIdIn  : SV_GroupThreadID)
 {
-    const uint numFcWideNodes = ScratchGlobal.Load(ShaderConstants.offsets.fcWideCounter);
+    const uint numFcWideNodes = ScratchBuffer.Load(ShaderConstants.offsets.fcWideCounter);
     const uint wideNodeIdx = globalIdIn;
+
+    if (globalIdIn == 0)
+    {
+        GPU_DPF("numFcWideNodes: %d", numFcWideNodes);
+    }
 
     if (wideNodeIdx < numFcWideNodes)
     {
-        const uint clusterIdx = ScratchBuffer.Load<uint>(ShaderConstants.offsets.fcWideNodeClusterIndices + wideNodeIdx * sizeof(uint));
-
         const uint fcRefsBaseOffset = ShaderConstants.offsets.fcWideNodeClusterReferences + wideNodeIdx * sizeof(uint4) * 2;
-        uint4 refs0 = ScratchGlobal.Load<uint4>(fcRefsBaseOffset);
-        uint4 refs1 = ScratchGlobal.Load<uint4>(fcRefsBaseOffset + sizeof(uint4));
+        uint4 refs0 = ScratchBuffer.Load<uint4>(fcRefsBaseOffset);
+        uint4 refs1 = ScratchBuffer.Load<uint4>(fcRefsBaseOffset + sizeof(uint4));
 
         // 1. Count Active refs
         // 1.1 Count active internal node count ( != 0xffffffff && msb is 1)
@@ -40,44 +47,94 @@ void AssignFusedCollapsedIndices(
         uint waveBaseInternalIdx = 0;
         if (WaveIsFirstLane())
         {
-            waveBaseInternalIdx = ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.fcInternalNodeAssignmentCounter, numWaveInternals);
+            waveBaseInternalIdx = ScratchBuffer.InterlockedAdd(ShaderConstants.offsets.fcBoxNodeAssignmentCounter, numWaveInternals);
         }
         waveBaseInternalIdx = WaveReadLaneFirst(waveBaseInternalIdx);
 #endif
-        uint internalNodeOutputBaseIdx = IncrementScratchCounter(ShaderConstants.offsets.fcInternalNodeAssignmentCounter, numInternals);
+        uint internalNodeOutputBaseIdx;
+        if (wideNodeIdx == 0)
+        {
+            internalNodeOutputBaseIdx = 1; // 0 is for root node
+        }
+        else
+        {
+            ScratchBuffer.InterlockedAdd(ShaderConstants.offsets.fcBoxNodeAssignmentCounter, numInternals, internalNodeOutputBaseIdx);
+        }
+        // if (globalIdIn == 0 || globalIdIn == 1 || internalNodeOutputBaseIdx < 3)
+        // {
+        //     GPU_DPF("globalIdIn: %d, internalNodeOutputBaseIdx: %d", globalIdIn, internalNodeOutputBaseIdx);
+        // }
+        ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhBaseBoxNodeOffsets + wideNodeIdx * sizeof(uint), internalNodeOutputBaseIdx);
         
+        
+        // if ((refs0.x & bit(31)) && (refs0.x & 0x7fffffff) < 10)
+        // {
+        //     GPU_DPF("ref0: %08x", refs0.x);
+        // }
+        // if ((refs0.y & bit(31)) && (refs0.y & 0x7fffffff) < 10)
+        // {
+        //     GPU_DPF("ref0: %08x", refs0.y);
+        // }
+        // if ((refs0.z & bit(31)) && (refs0.z & 0x7fffffff) < 10)
+        // {
+        //     GPU_DPF("ref0: %08x", refs0.z);
+        // }
+        // if ((refs0.w & bit(31)) && (refs0.w & 0x7fffffff) < 10)
+        // {
+        //     GPU_DPF("ref0: %08x", refs0.w);
+        // }
+        // if ((refs1.x & bit(31)) && (refs1.x & 0x7fffffff) < 10)
+        // {
+        //     GPU_DPF("ref1: %08x", refs1.x);
+        // }
+        // if ((refs1.y & bit(31)) && (refs1.y & 0x7fffffff) < 10)
+        // {
+        //     GPU_DPF("ref1: %08x", refs1.y);
+        // }
+        // if ((refs1.z & bit(31)) && (refs1.z & 0x7fffffff) < 10)
+        // {
+        //     GPU_DPF("ref1: %08x", refs1.z);
+        // }
+        // if ((refs1.w & bit(31)) && (refs1.w & 0x7fffffff) < 10)
+        // {
+        //     GPU_DPF("ref1: %08x", refs1.w);
+        // }
+        
+
+        
+        uint indexInParent = 0;
         if (intVec0.x)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhInternalNodeOutputIndices + internalNodeOutputBaseIdx++, refs0.x & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhBoxNodeMappingIndices + (refs0.x & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(internalNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec0.y)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhInternalNodeOutputIndices + internalNodeOutputBaseIdx++, refs0.y & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhBoxNodeMappingIndices + (refs0.y & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(internalNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec0.z)
         {            
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhInternalNodeOutputIndices + internalNodeOutputBaseIdx++, refs0.z & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhBoxNodeMappingIndices + (refs0.z & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(internalNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec0.w)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhInternalNodeOutputIndices + internalNodeOutputBaseIdx++, refs0.w & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhBoxNodeMappingIndices + (refs0.w & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(internalNodeOutputBaseIdx++, indexInParent++));
         }
 
         if (intVec1.x)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhInternalNodeOutputIndices + internalNodeOutputBaseIdx++, refs1.x & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhBoxNodeMappingIndices + (refs1.x & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(internalNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec1.y)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhInternalNodeOutputIndices + internalNodeOutputBaseIdx++, refs1.y & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhBoxNodeMappingIndices + (refs1.y & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(internalNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec1.z)
         {            
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhInternalNodeOutputIndices + internalNodeOutputBaseIdx++, refs1.z & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhBoxNodeMappingIndices + (refs1.z & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(internalNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec1.w)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhInternalNodeOutputIndices + internalNodeOutputBaseIdx++, refs1.w & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhBoxNodeMappingIndices + (refs1.w & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(internalNodeOutputBaseIdx++, indexInParent++));
         }
 
         // 1.2 Count active leaf node count ( != 0xffffffff && msb is 0)
@@ -92,45 +149,55 @@ void AssignFusedCollapsedIndices(
         uint waveBaseLeafIdx = 0;
         if (WaveIsFirstLane())
         {
-            waveBaseLeafIdx = ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.fcPrimNodeAssignmentCounter, numWaveLeafs);
+            waveBaseLeafIdx = ScratchBuffer.InterlockedAdd(ShaderConstants.offsets.fcLeafNodeAssignmentCounter, numWaveLeafs);
         }
         waveBaseLeafIdx = WaveReadLaneFirst(waveBaseLeafIdx);
 #endif
         // Get BaseIndex
-        uint leafNodeOutputBaseIdx = IncrementScratchCounter(ShaderConstants.offsets.fcPrimNodeAssignmentCounter, numLeafs);
-        
+        uint leafNodeOutputBaseIdx;
+        if (wideNodeIdx == 0)
+        {
+            leafNodeOutputBaseIdx = 0;
+        }
+        else
+        {
+            ScratchBuffer.InterlockedAdd(ShaderConstants.offsets.fcLeafNodeAssignmentCounter, numLeafs, leafNodeOutputBaseIdx);
+        }
+        ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhBaseLeafNodeOffsets + wideNodeIdx * sizeof(uint), leafNodeOutputBaseIdx);
+
+        indexInParent = 0;
         if (intVec0.x)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhPrimNodeOutputIndices + leafNodeOutputBaseIdx++, refs0.x & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhLeafNodeMappingIndices + (refs0.x & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(leafNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec0.y)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhPrimNodeOutputIndices + leafNodeOutputBaseIdx++, refs0.y & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhLeafNodeMappingIndices + (refs0.y & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(leafNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec0.z)
         {            
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhPrimNodeOutputIndices + leafNodeOutputBaseIdx++, refs0.z & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhLeafNodeMappingIndices + (refs0.z & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(leafNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec0.w)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhPrimNodeOutputIndices + leafNodeOutputBaseIdx++, refs0.w & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhLeafNodeMappingIndices + (refs0.w & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(leafNodeOutputBaseIdx++, indexInParent++));
         }
 
         if (intVec1.x)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhPrimNodeOutputIndices + leafNodeOutputBaseIdx++, refs1.x & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhLeafNodeMappingIndices + (refs1.x & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(leafNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec1.y)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhPrimNodeOutputIndices + leafNodeOutputBaseIdx++, refs1.y & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhLeafNodeMappingIndices + (refs1.y & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(leafNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec1.z)
         {            
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhPrimNodeOutputIndices + leafNodeOutputBaseIdx++, refs1.z & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhLeafNodeMappingIndices + (refs1.z & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(leafNodeOutputBaseIdx++, indexInParent++));
         }
         if (intVec1.w)
         {
-            ScratchGlobal.Store(ShaderConstants.offsets.fcWideBvhPrimNodeOutputIndices + leafNodeOutputBaseIdx++, refs1.w & 0x7fffffff);
+            ScratchBuffer.Store(ShaderConstants.offsets.fcWideBvhLeafNodeMappingIndices + (refs1.w & 0x7fffffff) * sizeof(uint), PackBoxNodeMappingIndexBits(leafNodeOutputBaseIdx++, indexInParent++));
         }
     }
 }

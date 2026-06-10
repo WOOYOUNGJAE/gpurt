@@ -489,11 +489,11 @@ void BvhBatcher::BuildMultiDispatch(Util::Span<BvhBuilder> builders)
         Barrier(BarrierFlagSyncIndirectArg | BarrierFlagSyncDispatch);
         BuildPhase(BuildPhaseFlags::BuildFusedCollapsingWideBvh, builders, &BvhBuilder::BuildFusedCollapsingWideBvh);
 
-        // TODO : Temporal Code for complete blas phase
-        {
-            Barrier();
-            BuildPhase(BuildPhaseFlags::EncodeHwBvh, builders, &BvhBuilder::EncodeHwBvh);
-        }
+        // // TODO : Temporal Code for complete blas phase
+        // {
+        //     Barrier();
+        //     BuildPhase(BuildPhaseFlags::EncodeHwBvh, builders, &BvhBuilder::EncodeHwBvh);
+        // }
     }
     else
     {

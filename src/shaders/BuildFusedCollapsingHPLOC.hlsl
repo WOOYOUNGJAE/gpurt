@@ -245,8 +245,8 @@ uint FetchClusterList(
                                                      Settings.enableEarlyPairCompression,
                                                      ShaderConstants.offsets.bvhLeafNodeData);
 
-        WriteCachedBounds(dstBaseIdx + localId, bbox);
-        WriteClusterId(dstBaseIdx + localId, clusterId);
+        WriteCachedBounds(dstBaseIdx + waveLaneId, bbox);
+        WriteClusterId(dstBaseIdx + waveLaneId, clusterId);
     }
 
     return numElements;
@@ -285,6 +285,40 @@ uint InitClusterList(
 }
 
 //=====================================================================================================================
+// Initialise reference data in group shared memory
+void InitReferenceList(
+    in uint localId,
+    in uint currentLeftStart,
+    in uint currentLeftEnd,
+    in uint currentRightStart,
+    in uint currentRightEnd,
+    in uint halfWaveSize
+)
+{
+    const uint waveLaneId = WaveGetLaneIndex();
+
+    // Leaf references
+    const uint numLeafElements = min(currentLeftEnd - currentLeftStart, halfWaveSize);
+    if (waveLaneId < numLeafElements)
+    {
+        // Fetch and write cluster references into lds
+        const uint refsOffset = ShaderConstants.offsets.fcClusterReferences + (currentLeftStart + waveLaneId) * sizeof(uint4);
+        uint4 references = ScratchBuffer.Load<uint4>(refsOffset);
+        WriteCachedReferences(0 + localId, references);
+    }
+
+    // Right referenes
+    const uint numRightElements = min(currentRightEnd - currentRightStart, halfWaveSize);
+    if (waveLaneId < numRightElements)
+    {
+        // Fetch and write cluster references into lds
+        const uint refsOffset = ShaderConstants.offsets.fcClusterReferences + (currentRightStart + waveLaneId) * sizeof(uint4);
+        uint4 references = ScratchBuffer.Load<uint4>(refsOffset);
+        WriteCachedReferences(numLeafElements + localId, references);
+    }
+}
+
+//=====================================================================================================================
 void BuildFusedCollapsingHPLOCImpl(
     const uint globalId,
     const uint localId,
@@ -313,7 +347,14 @@ void BuildFusedCollapsingHPLOCImpl(
     const uint halfWaveSize = waveSize / 2;
 
     // Initialize CacheEntry's referece data
-    WriteCachedReferences(WaveGetLaneIndex(), 0xffffffff.xxxx);
+    WriteCachedReferences(WaveGetLaneIndex(), laneActive ? uint4(globalId, 0xffffffff, 0xffffffff, 0xffffffff) : 0xffffffff.xxxx);
+
+    if (laneActive)
+    {
+        const uint refsOffset = ShaderConstants.offsets.fcClusterReferences + (globalId * sizeof(uint4));
+        ScratchBuffer.Store(refsOffset, uint4(globalId, 0xffffffff, 0xffffffff, 0xffffffff));
+    }
+    DeviceMemoryBarrier();
 
     while (WaveActiveBallot64(laneActive))
     {
@@ -376,6 +417,15 @@ void BuildFusedCollapsingHPLOCImpl(
                                                currentRightStart,
                                                currentRightEnd,
                                                halfWaveSize);
+
+            {
+                InitReferenceList(localId,
+                                  currentLeftStart,
+                                  currentLeftEnd,
+                                  currentRightStart,
+                                  currentRightEnd,
+                                  halfWaveSize);
+            }
 
             // Iteratively merge clusters and create internal nodes until we hit a cluster size of threshold
             const uint threshold   = currentFinal ? 1 : halfWaveSize;
@@ -465,7 +515,20 @@ void BuildFusedCollapsingHPLOCImpl(
                             // if |R| > k/2 or Root {clusterIdx = 2 * numPrims - 2 in paper} (k == 8)
                             if (numReferences0 + numReferences1 > (BVH_K / 2) || mergedNodeIndex == 0)
                             {
-                                uint wideIdx = IncrementScratchCounter(ShaderConstants.offsets.fcWideCounter, 1);
+                                // if (mergedNodeIndex < 2)
+                                // {
+                                //     GPU_DPF("mergedNodeIndex : %08x", mergedNodeIndex);
+                                //     // printed 00000000
+                                // }
+                                uint wideIdx;
+                                if (mergedNodeIndex == 0) // if root
+                                {
+                                    wideIdx = 0;
+                                }
+                                else
+                                {
+                                    ScratchBuffer.InterlockedAdd(ShaderConstants.offsets.fcWideCounter, 1, wideIdx);
+                                }
 
                                 // Set the MSB to indicate that this cluster represents an internal node, for wide node indexing phase
                                 ScratchBuffer.Store<uint>(ShaderConstants.offsets.fcWideNodeClusterIndices + wideIdx * sizeof(uint), mergedNodeIndex | bit(31));
@@ -475,14 +538,14 @@ void BuildFusedCollapsingHPLOCImpl(
                                 ScratchBuffer.Store<uint4>(fcRefsBaseOffset + sizeof(uint4), refs1);
 
                                 GPU_ASSERT(mergedNodeIndex != -1);
-                                newReferences = uint4(mergedNodeIndex, 0xffffffff, 0xffffffff, 0xffffffff);
+                                newReferences = uint4(mergedNodeIndex | bit(31), 0xffffffff, 0xffffffff, 0xffffffff);
                             }
                             else // |R| <= k/2
                             {
-                                int refSetCounts = EncodeReferenceSetCounts(numReferences0, numReferences1);
+                                int refSetCounts = EncodeReferenceSetCounts(numReferences1, numReferences0);
                                 // Handles k = 8 only
                                 // Unroll all case of reference set counts for dynamic indexing in vector register.
-                                newReferences = refs0;                                
+                                newReferences = refs1; // TODO DELETE
                                 switch (refSetCounts)
                                 {
                                     // {0,0}, {0,1}, {0,2}, {0,3}, {0,4}, {1,0}, {1,1}, {1,2}, {1,3}, {2,0}, {2,1}, {2,2}, {3,0}, {3,1}, {4,0}
@@ -490,16 +553,16 @@ void BuildFusedCollapsingHPLOCImpl(
                                     case (0 << 3) | 1:
                                     case (0 << 3) | 2:
                                     case (0 << 3) | 3:
-                                    case (0 << 3) | 4: newReferences = refs1;                                                           break;
+                                    case (0 << 3) | 4: newReferences = refs0;                                                           break;
                                     case (1 << 3) | 0:                                                                                  break;
-                                    case (1 << 3) | 1: newReferences.y = refs1.x;                                                       break;
-                                    case (1 << 3) | 2: newReferences.y = refs1.x; newReferences.z = refs1.y;                            break;
-                                    case (1 << 3) | 3: newReferences.y = refs1.x; newReferences.z = refs1.y; newReferences.w = refs1.z; break;
+                                    case (1 << 3) | 1: newReferences.y = refs0.x;                                                       break;
+                                    case (1 << 3) | 2: newReferences.y = refs0.x; newReferences.z = refs0.y;                            break;
+                                    case (1 << 3) | 3: newReferences.y = refs0.x; newReferences.z = refs0.y; newReferences.w = refs0.z; break;
                                     case (2 << 3) | 0:                                                                                  break;
-                                    case (2 << 3) | 1: newReferences.z = refs1.x;                                                       break;
-                                    case (2 << 3) | 2: newReferences.z = refs1.x; newReferences.w = refs1.y;                            break;
+                                    case (2 << 3) | 1: newReferences.z = refs0.x;                                                       break;
+                                    case (2 << 3) | 2: newReferences.z = refs0.x; newReferences.w = refs0.y;                            break;
                                     case (3 << 3) | 0:                                                                                  break;
-                                    case (3 << 3) | 1: newReferences.w = refs1.x;                                                       break;
+                                    case (3 << 3) | 1: newReferences.w = refs0.x;                                                       break;
                                     case (4 << 3) | 0:                                                                                  break;
                                     default : GPU_ASSERT(0); // unexpected case, should not happen
                                 }
@@ -581,9 +644,17 @@ void BuildFusedCollapsingHPLOCImpl(
                 const uint dstIdx = currentLeftStart + waveLaneId;
                 if (dstIdx < numActivePrims)
                 {
-                    const uint offset = ShaderConstants.offsets.primIndicesSorted + (dstIdx * sizeof(uint));
+                    const uint idOffset = ShaderConstants.offsets.primIndicesSorted + (dstIdx * sizeof(uint));
                     const uint clusterId = (waveLaneId < clusterSize) ? ReadClusterId(waveLaneId) : INVALID_IDX;
-                    ScratchBuffer.Store(offset, clusterId);
+                    ScratchBuffer.Store(idOffset, clusterId);
+                    const uint refsOffset = ShaderConstants.offsets.fcClusterReferences + (dstIdx * sizeof(uint4));
+                    const uint4 references = (waveLaneId < clusterSize) ? ReadCachedReferences(waveLaneId) : 0xffffffff.xxxx;
+                    ScratchBuffer.Store(refsOffset, references);
+                    if (waveLaneId < clusterSize && ((clusterId >> 31) != 0)) // print internal node with msb 1
+                    {
+                        // Check if internal node that msb is 1
+                        // GPU_DPF("Cluster %u: %08x, refs: %08x %08x %08x %08x", dstIdx, clusterId, references.x, references.y, references.z, references.w);
+                    }
                 }
             }
 
@@ -633,6 +704,7 @@ void BuildFusedCollapsingHPLOC(
         if (globalId == 0)
         {
             WriteRootNodeIndex(ShaderConstants.offsets.fastLBVHRootNodeIndex, rootNodeIndex);
+            GPU_DPF("numActivePrims: %u", numActivePrims);
         }
         BuildFusedCollapsingHPLOCImpl(globalId, localId, numActivePrims);
     }

@@ -1176,14 +1176,18 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     uint32 atomicFlagsPloc = 0xFFFFFFFF;
 
     // Fused Collapsing (FC/fc)
-    uint32 fcWideCounter               = 0xFFFFFFFF;
-    uint32 fcWideNodeClusterIndices    = 0xFFFFFFFF; // TODO : move this to QBVH section
-    uint32 fcWideNodeClusterReferences = 0xFFFFFFFF; // TODO : move this to QBVH section
+    uint32 fcWideCounter = 0xFFFFFFFF;
+    uint32 fcWideNodeClusterIndices      = 0xFFFFFFFF;
+    uint32 fcWideNodeClusterReferences   = 0xFFFFFFFF;
+    uint32 fcClusterReferences           = 0xFFFFFFFF;
     // FC Index Assignment Phase
-    uint32 fcInternalNodeAssignmentCounter = 0xFFFFFFFF;
-    uint32 fcPrimNodeAssignmentCounter = 0xFFFFFFFF;
-    uint32 fcWideBvhInternalNodeOutputIndices = 0xFFFFFFFF;
-    uint32 fcWideBvhPrimNodeOutputIndices = 0xFFFFFFFF;
+    uint32 fcBoxNodeAssignmentCounter      = 0xFFFFFFFF;
+    uint32 fcLeafNodeAssignmentCounter     = 0xFFFFFFFF;
+    uint32 fcWideBvhBoxNodeMappingIndices  = 0xFFFFFFFF;
+    uint32 fcWideBvhLeafNodeMappingIndices = 0xFFFFFFFF;
+    uint32 fcWideBvhBaseBoxNodeOffsets     = 0xFFFFFFFF;
+    uint32 fcWideBvhBaseLeafNodeOffsets    = 0xFFFFFFFF;
+
 
     //--------------------------------------------
     // QBVH
@@ -1511,16 +1515,17 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     // if (m_buildConfig.enableFusedCollapsing) // TODO
     {
         // Fused Collapsing PLOC
-        fcWideCounter = ReserveBytes(sizeof(uint32), &runningOffset);
-        fcWideNodeClusterIndices = ReserveBytes(aabbCount * sizeof(uint), &runningOffset); // TODO: move this to QBVH(HwEncode) section
-        fcWideNodeClusterReferences = ReserveBytes(aabbCount * sizeof(uint4) * 2, &runningOffset); // TODO: move this to QBVH(HwEncode) section
+        fcWideCounter = ReserveBytes(sizeof(uint), &runningOffset);
+        fcWideNodeClusterIndices = ReserveBytes(aabbCount * sizeof(uint), &runningOffset);
+        fcWideNodeClusterReferences = ReserveBytes(aabbCount * sizeof(uint4) * 2, &runningOffset);
+        fcClusterReferences = ReserveBytes(aabbCount * sizeof(uint4), &runningOffset);
         // Index Assignment
-        fcInternalNodeAssignmentCounter = ReserveBytes(sizeof(uint32), &runningOffset);
-        fcPrimNodeAssignmentCounter = ReserveBytes(sizeof(uint32), &runningOffset);
-        fcWideBvhInternalNodeOutputIndices = ReserveBytes(sizeof(uint32) * GetNumInternalNodeCount(), &runningOffset);
-        fcWideBvhPrimNodeOutputIndices = ReserveBytes(sizeof(uint32) * GetMaxNumLeafNodes(), &runningOffset);
-
-        // GetNumInternalNodeCount() vs m_buildConfig.maxNumPrimitives; is different? 
+        fcBoxNodeAssignmentCounter = ReserveBytes(sizeof(uint32), &runningOffset);
+        fcLeafNodeAssignmentCounter = ReserveBytes(sizeof(uint32), &runningOffset);
+        fcWideBvhBoxNodeMappingIndices = ReserveBytes(sizeof(uint32) * GetNumInternalNodeCount(), &runningOffset);
+        fcWideBvhLeafNodeMappingIndices = ReserveBytes(sizeof(uint32) * GetMaxNumLeafNodes(), &runningOffset);
+        fcWideBvhBaseBoxNodeOffsets = ReserveBytes(sizeof(uint32) * GetNumInternalNodeCount(), &runningOffset);
+        fcWideBvhBaseLeafNodeOffsets = ReserveBytes(sizeof(uint32) * GetMaxNumLeafNodes(), &runningOffset);
     }
     bvh2PhaseMaxSize = Util::Max(bvh2PhaseMaxSize, runningOffset);
 
@@ -1574,10 +1579,13 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
         pOffsets->fcWideCounter = fcWideCounter;
         pOffsets->fcWideNodeClusterIndices = fcWideNodeClusterIndices;
         pOffsets->fcWideNodeClusterReferences = fcWideNodeClusterReferences;
-        pOffsets->fcInternalNodeAssignmentCounter = fcInternalNodeAssignmentCounter;
-        pOffsets->fcPrimNodeAssignmentCounter = fcPrimNodeAssignmentCounter;
-        pOffsets->fcWideBvhInternalNodeOutputIndices = fcWideBvhInternalNodeOutputIndices;
-        pOffsets->fcWideBvhPrimNodeOutputIndices = fcWideBvhPrimNodeOutputIndices;
+        pOffsets->fcClusterReferences = fcClusterReferences;
+        pOffsets->fcBoxNodeAssignmentCounter = fcBoxNodeAssignmentCounter;
+        pOffsets->fcLeafNodeAssignmentCounter = fcLeafNodeAssignmentCounter;
+        pOffsets->fcWideBvhBoxNodeMappingIndices = fcWideBvhBoxNodeMappingIndices;
+        pOffsets->fcWideBvhLeafNodeMappingIndices = fcWideBvhLeafNodeMappingIndices;
+        pOffsets->fcWideBvhBaseBoxNodeOffsets = fcWideBvhBaseBoxNodeOffsets;
+        pOffsets->fcWideBvhBaseLeafNodeOffsets = fcWideBvhBaseLeafNodeOffsets;
     }
 
     ScratchBufferInfo info;
@@ -2012,7 +2020,7 @@ void BvhBuilder::InitBuildConfig(
         m_buildConfig.enableEmitCompactSizeDispatch = true;
     }
 
-    // Fused Collapsing only allowed for {BLAS & !update & bvh8 & !rebraid & filterInstanceNode & !CompressPrims}
+    // Fused Collapsing only allowed for {BLAS & !update & bvh8 & !rebraid & !filterInstanceNode & !CompressPrims}
     if (enableFusedCollapsing && UpdateAllowed() == false || (m_buildConfig.topLevelBuild == false))
     {
         m_buildConfig.enableFusedCollapsingWideBvh = true;
@@ -2625,6 +2633,23 @@ void BvhBuilder::InitAccelerationStructure()
 
         const gpusize encodeTaskCountersOffset = ScratchBufferBaseVa() + m_scratchOffsets.encodeTaskCounter;
         WriteImmediateData(encodeTaskCountersOffset, encodeTaskCounters);
+    }
+
+    if (enableFusedCollapsing)
+    {
+        // Init Counters
+        uint fcBoxNodeAssignmentCounter = 1; // 0 is for root node
+        const gpusize fcBoxNodeAssignmentCounterVa = RemappedScratchBufferBaseVa() + m_scratchOffsets.fcBoxNodeAssignmentCounter;
+        WriteImmediateData(fcBoxNodeAssignmentCounterVa, fcBoxNodeAssignmentCounter);
+
+        uint fcLeafNodeAssignmentCounter = 0;
+        const gpusize fcLeafNodeAssignmentCounterVa = RemappedScratchBufferBaseVa() + m_scratchOffsets.fcLeafNodeAssignmentCounter;
+        WriteImmediateData(fcLeafNodeAssignmentCounterVa, fcLeafNodeAssignmentCounter);
+
+        uint fcWideCounter = 1; // 0 is for root node
+        const gpusize fcWideCounterVa = RemappedScratchBufferBaseVa() + m_scratchOffsets.fcWideCounter;
+        WriteImmediateData(fcWideCounterVa, fcWideCounter);
+        
     }
 
 #if GPURT_BUILD_RTIP3_1
@@ -4009,7 +4034,7 @@ BuildPhaseFlags BvhBuilder::EnabledPhases() const
                 flags |= BuildPhaseFlags::RadixSort;
             }
 
-            if (m_buildConfig.enableFusedCollapsingWideBvh)
+            if (m_buildConfig.enableFusedCollapsingWideBvh && m_buildConfig.topLevelBuild == false)
             {
                 flags |= BuildPhaseFlags::BuildFusedCollapsingWideBvh;
                 if (m_buildConfig.buildMode == BvhBuildMode::HPLOC)
@@ -4020,9 +4045,6 @@ BuildPhaseFlags BvhBuilder::EnabledPhases() const
                 {
                     flags |= BuildPhaseFlags::BuildPLOC;
                 }
-
-                // TEMP
-                flags |= BuildPhaseFlags::EncodeHwBvh;
             }
             else // Origianl MultiDispatch method
             {
@@ -4421,12 +4443,27 @@ void BvhBuilder::BuildFusedCollapsingWideBvh()
 
     RGP_POP_MARKER();
 
+    Barrier();
+
+    // Output Index Assignment Phase
+    BindPipeline(InternalRayTracingCsType::FusedCollapsingTaskShader);
+    Dispatch(1u);
+
+    // Barrier for Indirect Args (wide node counter)
     Barrier(BarrierFlagSyncIndirectArg | BarrierFlagSyncDispatch);
 
     // Output Index Assignment Phase
     BindPipeline(InternalRayTracingCsType::AssignFusedCollapsedIndices);
     {
-        const gpusize indirectArgsGpuVa = ScratchBufferBaseVa() + m_scratchOffsets.fcWideCounter;
+        const gpusize indirectArgsGpuVa = ScratchBufferBaseVa() + m_scratchOffsets.encodeTaskCounter + ENCODE_TASK_COUNTER_INDIRECT_ARGS;
+        DispatchIndirect(indirectArgsGpuVa);
+    }
+
+    Barrier();
+
+    BindPipeline(InternalRayTracingCsType::WriteFusedCollapsedWideBvh);
+    {
+        const gpusize indirectArgsGpuVa = ScratchBufferBaseVa() + m_scratchOffsets.encodeTaskCounter + ENCODE_TASK_COUNTER_INDIRECT_ARGS;
         DispatchIndirect(indirectArgsGpuVa);
     }
     INTERNAL_TIMESTAMP_END();

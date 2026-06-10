@@ -357,7 +357,9 @@ enum class InternalRayTracingCsType : uint32
     EncodeQuadNodes,
     BuildHPLOC,
     BuildFusedCollapsingHPLOC,
+    FusedCollapsingTaskShader,
     AssignFusedCollapsedIndices,
+    WriteFusedCollapsedWideBvh,
 #if GPURT_BUILD_RTIP3_1
     BuildTrivialBvh,
     BuildSingleThreadGroup32,
