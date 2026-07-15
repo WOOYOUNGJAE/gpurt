@@ -29,6 +29,7 @@
 #include "../common/ShaderDefs.hlsli"
 #include "../common/ScratchNode.hlsli"
 #include "../common/BoundingBox.hlsli"
+#include "../common/ScratchWideNode.hlsli"
 
 //=====================================================================================================================
 ScratchNode FetchScratchNode(
@@ -191,5 +192,78 @@ uint FetchCompressPrimSingleCount(uint stackPtrsScratchOffset)
     return ScratchGlobal.Load(stackPtrsScratchOffset + STACK_PTRS_PRIM_COMP_SINGLE_COUNT);
 }
 #endif
+
+//======================================================================================================================
+uint GetBvhWideNodesOffset(
+    uint numActivePrims,
+    uint maxNumPrimitives,
+    uint bvhNodeDataOffset,
+    uint bvhLeafNodeDataOffset,
+    uint primIndicesSortedOffset)
+{
+    if ((UsesFastLbvhLayout() == false) && (numActivePrims == 1) && (maxNumPrimitives > 1))
+    {
+        // If there is one active primitive among a number of inactive primitives then we need to move
+        // the root to match the offset of the single active primitive.
+        // The FastLBVH layout does not need to do this, because it provides the root's index
+        // in ShaderConstants.offsets.fastLBVHRootNodeIndex.
+        const uint nodeIndex = ScratchBuffer.Load(primIndicesSortedOffset);
+        return CalcScratchWideNodeOffset(bvhLeafNodeDataOffset, nodeIndex);
+    }
+    else
+    {
+        return CalculateScratchWideBvhNodesOffset(
+                   numActivePrims,
+                   maxNumPrimitives,
+                   bvhNodeDataOffset);
+    }
+}
+
+//=====================================================================================================================
+static uint CalculateBvhWideNodesOffset(
+    BuildShaderConstants shaderConstants,
+    uint                 numActivePrims)
+{
+    return GetBvhWideNodesOffset(
+               numActivePrims,
+               shaderConstants.maxNumPrimitives,
+               shaderConstants.offsets.bvhWideNodeData,
+               shaderConstants.offsets.bvhLeafNodeData,
+               shaderConstants.offsets.primIndicesSorted);
+}
+
+//=====================================================================================================================
+ScratchWideNode FetchScratchWideNode(
+    uint baseScratchWideNodesOffset,
+    uint nodeIndex)
+{
+    const uint nodeOffset = CalcScratchNodeOffset(baseScratchWideNodesOffset, nodeIndex);
+    return ScratchGlobal.Load<ScratchWideNode>(nodeOffset);
+}
+
+//=====================================================================================================================
+ScratchWideNode FetchScratchWideNodeAtOffset(
+    uint nodeOffset)
+{
+    return ScratchGlobal.Load<ScratchWideNode>(nodeOffset);
+}
+
+//=====================================================================================================================
+void WriteScratchWideNode(
+    uint baseScratchWideNodesOffset,
+    uint nodeIndex,
+    ScratchWideNode node)
+{
+    const uint nodeOffset = CalcScratchNodeOffset(baseScratchWideNodesOffset, nodeIndex);
+    ScratchGlobal.Store<ScratchWideNode>(nodeOffset, node);
+}
+
+//=====================================================================================================================
+void WriteScratchWideNodeAtOffset(
+    uint nodeOffset,
+    ScratchWideNode node)
+{
+    ScratchGlobal.Store<ScratchWideNode>(nodeOffset, node);
+}
 
 #endif

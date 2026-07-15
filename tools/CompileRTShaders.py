@@ -178,6 +178,7 @@ bvhShaderConfigs = [
 #endif
 #if GPURT_BUILD_RTIP3_1
     ShaderConfig(path="EncodeHwBvh3_1.hlsl", entryPoint="EncodeHwBvh3_1"),
+    ShaderConfig(path="CollapseScratchBvh.hlsl", entryPoint="CollapseScratchBvh"),
 #endif
     ShaderConfig(path="DGF/EncodeDGF.hlsl", entryPoint="EncodeDGF", defines="USES_DGF_BUFFER=1"),
     ShaderConfig(path="../shadersClean/traversal/PrepareShadowSbtForReplay.hlsl", entryPoint="PrepareShadowSbtForReplay", outputName="PrepareShadowSbtForReplay"),

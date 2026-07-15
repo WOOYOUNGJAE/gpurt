@@ -50,7 +50,7 @@ enum class BuildPhaseFlags : uint32_t
     RadixSort                     = 1 << 5,
     // Unused6                    = 1 << 6,
     BuildPLOC                     = 1 << 7,
-    // Unused8                    = 1 << 8,
+    CollapseScratchBvh            = 1 << 8,
     PairCompression               = 1 << 9,
 #if GPURT_BUILD_RTIP3_1
     CompressPrims                 = 1 << 10,
@@ -87,6 +87,8 @@ static const char* BuildPhaseName(BuildPhaseFlags phase)
         return "OnesweepRadixSort";
     case GpuRt::BuildPhaseFlags::BuildPLOC:
         return "BuildPLOC";
+    case GpuRt::BuildPhaseFlags::CollapseScratchBvh:
+        return "CollapseScratchBvh";
     case GpuRt::BuildPhaseFlags::PairCompression:
         return "PairCompression";
 #if GPURT_BUILD_RTIP3_1

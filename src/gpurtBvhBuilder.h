@@ -245,6 +245,7 @@ private:
         bool                            enableEmitCompactSizeDispatch;
         bool                            nonInlinePostBuildEmits;
         uint32                          rebraidFactor;
+        bool                            enableWideNodeMerging;
     };
 
     BvhBuilder(
@@ -373,6 +374,8 @@ private:
     void UpdateQBVH();
 
     void UpdateParallel();
+
+    void CollapseScratchBvh();
 
     void EncodeHwBvh();
 

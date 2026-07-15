@@ -365,6 +365,7 @@ enum class InternalRayTracingCsType : uint32
     BuildSingleThreadGroup512,
     BuildSingleThreadGroup1024,
     EncodeHwBvh3_1,
+    CollapseScratchBvh,
     Update3_1,
     RefitInstanceBounds,
 #endif
@@ -939,6 +940,7 @@ struct DeviceSettings
 #endif
     uint32                      instanceMode;                // Intersectable instance node mode (See InstanceMode)
     uint32                      boxSplittingFlags;           // Box splitting / Child reuse flags
+    uint32                      wideNodeMergingFlags;        // Wide node merging flags
 #endif
 #if GPURT_DEVELOPER
     RgpMarkerGranularityFlags   rgpMarkerGranularityFlags;
@@ -1145,6 +1147,14 @@ enum class BoxSortHeuristic : uint32
     LargestFirstOrClosest = 0x4,
     LargestFirstOrClosestMidPoint = 0x5,
     DisabledOnAcceptFirstHit = 0x6
+};
+
+enum class WideNodeMergingFlags : uint32
+{
+    None          = 0x0,
+    BLAS          = 0x1,
+    TLAS          = 0x2,
+    InternalNodes = 0x4,
 };
 
 // Ray history trace

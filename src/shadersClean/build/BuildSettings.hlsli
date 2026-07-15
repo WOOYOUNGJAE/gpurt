@@ -78,6 +78,7 @@
 [[vk::constant_id(BUILD_SETTINGS_DATA_REBRAID_OPEN_SA_FACTOR_ID)]]                 float rebraidOpenSAFactor          = 0;
 [[vk::constant_id(BUILD_SETTINGS_DATA_REBRAID_OPEN_MIN_PRIMS_ID)]]                 uint rebraidOpenMinPrims           = 0;
 #endif
+[[vk::constant_id(BUILD_SETTINGS_DATA_WIDE_NODE_MERGING_FLAGS_ID)]]                uint wideNodeMergingFlags          = 0;
 
 static const CompileTimeBuildSettings Settings = {
     topLevelBuild,
@@ -152,6 +153,7 @@ static const CompileTimeBuildSettings Settings = {
     0,
     0,
 #endif
+    wideNodeMergingFlags
 };
 
 #endif

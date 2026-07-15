@@ -532,7 +532,16 @@ void BvhBatcher::BuildMultiDispatch(Util::Span<BvhBuilder> builders)
         BuildPhase(BuildPhaseFlags::RefitInstanceBounds, builders, &BvhBuilder::RefitInstanceBounds);
     }
 #endif
-    if (PhaseEnabled(BuildPhaseFlags::EncodeHwBvh))
+    if (PhaseEnabled(BuildPhaseFlags::CollapseScratchBvh))
+    {
+        Barrier();
+        BuildPhase(BuildPhaseFlags::CollapseScratchBvh, builders, &BvhBuilder::CollapseScratchBvh);
+
+        // Temporary code. if this deleted, swap the order of CollapseScratchBvh and EncodeHwBvh.
+        Barrier();
+        BuildPhase(BuildPhaseFlags::EncodeHwBvh, builders, &BvhBuilder::EncodeHwBvh);
+    }
+    else if (PhaseEnabled(BuildPhaseFlags::EncodeHwBvh))
     {
         Barrier();
         BuildPhase(BuildPhaseFlags::EncodeHwBvh, builders, &BvhBuilder::EncodeHwBvh);

@@ -909,13 +909,18 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
     // pair0-3 and pair4-7 are identical.
     const uint nodeType = (nodePtr & 7);
 
-    if (nodeType == 5) // bvh8_box_128
+    if (nodeType == 4) // bvh8_box_128_2
+    {
+        
+    }
+    else if (nodeType == 5) // bvh8_box_128
     {
         Float32BoxNode node0 = (Float32BoxNode)0;
         Float32BoxNode node1 = (Float32BoxNode)0;
         uint parentPointer;
 
         QuantizedBVH8BoxNode node = FetchQuantizedBVH8BoxNode(ExtractInstanceAddr(baseNodePtr), nodePtr);
+        // uint mergeMask;
         node.Decode(node0, node1, parentPointer);
 
         PerformEarlyBoxCulling(node0, baseNodePtr);
@@ -948,6 +953,16 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
                           true,
                           result.slot0,
                           result.slot1);
+        // mergeMask 
+        // result.slot0.x = (mergeMask & (1u << 0)) ? result.slot0.x : 0;
+        // result.slot0.y = (mergeMask & (1u << 1)) ? result.slot0.y : 0;
+        // result.slot0.z = (mergeMask & (1u << 2)) ? result.slot0.z : 0;
+        // result.slot0.w = (mergeMask & (1u << 3)) ? result.slot0.w : 0;
+
+        // result.slot1.x = (mergeMask & (1u << 4)) ? result.slot1.x : 0;
+        // result.slot1.y = (mergeMask & (1u << 5)) ? result.slot1.y : 0;
+        // result.slot1.z = (mergeMask & (1u << 6)) ? result.slot1.z : 0;
+        // result.slot1.w = (mergeMask & (1u << 7)) ? result.slot1.w : 0;
     }
     else if (nodeType == 6) // Instance node
     {

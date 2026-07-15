@@ -1122,6 +1122,7 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     // BVH2 & QBVH
     uint32 bvhNodeData = 0xFFFFFFFF;
     uint32 bvhLeafNodeData = 0xFFFFFFFF;
+    uint32 bvhWideNodeData = 0xFFFFFFFF; // TODO : Replace this if it can be written directly into the BVH2 scratch node data (bvhNodeData) buffer.
     uint32 fastLBVHRootNodeIndex = 0xFFFFFFFF;
 #if GPURT_BUILD_RTIP3_1
     uint32 primCompNodeIndices = 0xFFFFFFFF;
@@ -1188,6 +1189,7 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     uint32 obbRefitStack = 0;
     uint32 qbvhObbFlags = 0;
     uint32 qbvhKdops = 0;
+    uint32 scratchWideNodeCounter = 0;
 #endif
 
     // ============ TaskLoopCounters ============
@@ -1324,6 +1326,12 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
             primCompNodeIndicesEnd = runningOffset;
         }
 #endif
+        if (m_buildConfig.enableWideNodeMerging)
+        {
+            static constexpr size_t RayTracingScratchWideNodeSize = 64;
+            scratchWideNodeCounter = ReserveBytes(sizeof(uint32), &runningOffset);
+            bvhWideNodeData = ReserveBytes(nodeCount * RayTracingScratchWideNodeSize, &runningOffset);
+        }
     }
     qbvhPhaseMaxSize = runningOffset;
 
@@ -1534,6 +1542,8 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
         pOffsets->rebraidTaskQueueCounter = rebraidTaskQueueCounter;
         pOffsets->rebraidPrefixSumFlags = rebraidPrefixSumFlags;
         pOffsets->bvhLeafNodeData = bvhLeafNodeData;
+        pOffsets->scratchWideNodeCounter = scratchWideNodeCounter;
+        pOffsets->bvhWideNodeData = bvhWideNodeData;
         pOffsets->clusterList0 = clustersList0;
         pOffsets->clusterList1 = clustersList1;
         pOffsets->neighborIndices = neighbourIndices;
@@ -1949,6 +1959,15 @@ void BvhBuilder::InitBuildConfig(
         m_buildConfig.enableOrientedBoundingBoxes &= ~(1 << uint32(AccelStructType::TopLevel));
     }
 #endif
+
+    m_buildConfig.enableWideNodeMerging =
+        (m_buildConfig.topLevelBuild == true && (m_deviceSettings.wideNodeMergingFlags & static_cast<uint32>(GpuRt::WideNodeMergingFlags::TLAS))) ||
+        (m_buildConfig.topLevelBuild == false && (m_deviceSettings.wideNodeMergingFlags & static_cast<uint32>(GpuRt::WideNodeMergingFlags::BLAS)));
+            
+    if (m_deviceSettings.wideNodeMergingFlags)
+    {
+        m_buildConfig.enableOrientedBoundingBoxes = 0;
+    }
 
     // Max geometries we can fit in the SRD table for merged encode buiping ld/update
     const uint32 maxDescriptorTableSize = (m_cmdBuffer != nullptr) ?
@@ -2887,6 +2906,7 @@ void BvhBuilder::InitBuildSettings()
     m_buildSettings.obbNumLevels                 = m_deviceSettings.obbNumLevels;
 #endif
     m_buildSettings.boxSplittingFlags            = m_deviceSettings.boxSplittingFlags;
+    m_buildSettings.wideNodeMergingFlags         = m_deviceSettings.wideNodeMergingFlags;
     m_buildSettings.enableBvhChannelBalancing    = m_deviceSettings.enableBvhChannelBalancing;
     m_buildSettings.tlasRefittingMode            = m_deviceSettings.tlasRefittingMode;
     // TLAS Refitting is disabled for procedural geometry
@@ -4004,8 +4024,15 @@ BuildPhaseFlags BvhBuilder::EnabledPhases() const
             {
                 flags |= BuildPhaseFlags::PairCompression;
             }
-
-            flags |= BuildPhaseFlags::EncodeHwBvh;
+            if (m_buildConfig.enableWideNodeMerging)
+            {
+                flags |= BuildPhaseFlags::CollapseScratchBvh;
+                flags |= BuildPhaseFlags::EncodeHwBvh;
+            }
+            else
+            {
+                flags |= BuildPhaseFlags::EncodeHwBvh;
+            }
 
 #if GPURT_BUILD_RTIP3_1
             if (m_buildConfig.topLevelBuild == true)
@@ -4531,6 +4558,35 @@ uint32 BvhBuilder::GetParallelBuildNumThreadGroups()
 
     return numThreadGroups;
 }
+
+// =====================================================================================================================
+void BvhBuilder::CollapseScratchBvh()
+{
+    BindPipeline(InternalRayTracingCsType::CollapseScratchBvh);
+
+    const uint32 nodeCount       = GetNumInternalNodeCount();
+    const uint32 numThreadGroups = Util::RoundUpQuotient(nodeCount, DefaultThreadGroupSize);
+
+    BuildShaderRootConstants0 shaderConstants =
+    {
+       .numThreads = numThreadGroups * DefaultThreadGroupSize
+    };
+    WriteBuildBufferBindings(shaderConstants);
+
+    INTERNAL_TIMESTAMP_BEGIN();
+
+    RGP_PUSH_MARKER("Collapse Scratch BVH (nodeCount %u)", nodeCount);
+    Dispatch(numThreadGroups);
+    RGP_POP_MARKER();
+
+    // Reset the task counter in destination buffer. - not work
+    // Barrier();
+    // ResetTaskCounter(HeaderBufferBaseVa());
+    // Barrier();
+
+    INTERNAL_TIMESTAMP_END();
+}
+
 
 // =====================================================================================================================
 // Executes the EncodeHwBvh shader

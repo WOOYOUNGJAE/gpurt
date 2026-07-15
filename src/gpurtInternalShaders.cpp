@@ -119,6 +119,7 @@ const PipelineBuildInfo InternalPipelineBuildInfo[size_t(InternalRayTracingCsTyp
     PIPELINE_BUILD_INFO(BuildSingleThreadGroup512),
     PIPELINE_BUILD_INFO(BuildSingleThreadGroup1024),
     PIPELINE_BUILD_BVH_INFO(EncodeHwBvh3_1),
+    PIPELINE_BUILD_BVH_INFO(CollapseScratchBvh),
     PIPELINE_BUILD_BVH_INFO(Update3_1),
     PIPELINE_BUILD_BVH_INFO(RefitInstanceBounds),
 #endif

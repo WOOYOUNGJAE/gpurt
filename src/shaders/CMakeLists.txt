@@ -53,6 +53,7 @@ set(gpurtHlsl
     EncodeHwBvhCommon.hlsl
 #if GPURT_BUILD_RTIP3_1
     EncodeHwBvh3_1.hlsl
+    CollapseScratchBvh.hlsl
     QBVH8Common.hlsl
     ../shadersClean/common/LaneGroup.hlsli
 #endif
@@ -203,6 +204,7 @@ set(otherDeps
     ../shadersClean/common/gfx12/childInfo.hlsl
     ../shadersClean/common/gfx12/internalNode.hlsli
     ../shadersClean/common/gfx12/primitiveNode.hlsli
+    ../shadersClean/common/gfx12/internalBlock.hlsli
     ../shared/gpurtShaderConstants.h
 #endif
     ../shadersClean/common/Bits.hlsli
@@ -216,6 +218,7 @@ set(otherDeps
     ../shadersClean/common/InstanceDesc.hlsli
     ../shadersClean/common/NodePointers.hlsli
     ../shadersClean/common/ScratchNode.hlsli
+    ../shadersClean/common/ScratchWideNode.hlsli
     ../shadersClean/traversal/TraversalDefs.hlsli
     ../shadersClean/common/gfx10/BoxNode1_0.hlsli
     ../shadersClean/common/gfx10/BoxNode1_0.hlsl
