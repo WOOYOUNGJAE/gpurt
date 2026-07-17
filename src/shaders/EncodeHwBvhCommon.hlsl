@@ -203,6 +203,28 @@ void InitStackPtrs()
 }
 
 //======================================================================================================================
+void InitStackPtrs(uint32_t rootNodeIndex)
+{
+    StackPtrs stackPtrs = (StackPtrs)0;
+
+    // Nodes are allocated in 128 byte chunks with first chunk reserved for root node
+    stackPtrs.stackPtrSrcNodeId = 1;
+
+    // NumLeafsDone for TLAS is counted in stackPtrNodeDest and is initialised to 0. While for BLAS, stackPtrNodeDest
+    // is used as global stack counter.
+    if (Settings.topLevelBuild == 0)
+    {
+        stackPtrs.stackPtrNodeDest = 1;
+    }
+
+    stackPtrs.primCompGroupCountY = 1;
+    stackPtrs.primCompGroupCountZ = 1;
+    
+    ScratchGlobal.Store<StackPtrs>(ShaderConstants.offsets.qbvhGlobalStackPtrs, stackPtrs);
+    ScratchGlobal.Store<uint2>(ShaderConstants.offsets.qbvhGlobalStack, uint2(rootNodeIndex, 0));
+}
+
+//======================================================================================================================
 void ClearStackPtrs(
     in uint globalId,
     in uint maxInternalNodeCount,

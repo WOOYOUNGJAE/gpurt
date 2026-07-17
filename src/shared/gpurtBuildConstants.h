@@ -57,7 +57,6 @@ struct RayTracingScratchDataOffsets
     uint32 plocTaskQueueCounter;// BVH PLOC build only
     uint32 atomicFlagsPloc;     // BVH PLOC build only
     uint32 reserved0;
-    uint32 reserved1;
     uint32 scratchWideNodeCounter; // Number of scratch wide nodes
     uint32 bvhWideNodeData;     // Wide node merging build only
     uint32 sceneBounds;

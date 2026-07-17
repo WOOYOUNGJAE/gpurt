@@ -7,28 +7,32 @@
 // The structure is 64-byte aligned. Used only for wide internal nodes for now.
 struct ScratchWideNode
 {
-    // children's wide node index
-    uint4  children0;
-    uint4  children1;
+    // children's wide node index for internal nodes
+    // leaf scratch index for leaf nodes
+    uint4  children0WideNodeIndexOrLeafScratchIndex;
+    uint4  children1WideNodeIndexOrLeafScratchIndex;
 
-    float3 bbox_min;
+    float3 bbox_min; // fetch from original scratch node
     uint   scratchIndex;
 
     float3 bbox_max;
     uint   packedFlags; // flags [0:7], instanceMask [8:15], quadSwizzle [16:23]
 #if GPURT_BUILD_RTIP3_1
-                        // Triangle OBB matrix index [24:31] for primitive nodes (not supported)
-                        // Index of the first leaf child [29:31] for internal nodes
+                        // Triangle OBB matrix index [0:7] for primitive nodes (not supported)
+                        // packedSourceBoxes from collapsing phase [16:31] for internal nodes
+                        // leader mask of child nodes [5:12] for internal nodes
+                        // whether this node is the leader box node [4] for internal nodes
+                        // Number of box children [0:3] for internal nodes
 #endif
 };
 
-#define SCRATCH_WIDE_NODE_CHILDREN0_OFFSET 0
-#define SCRATCH_WIDE_NODE_CHILDREN1_OFFSET 16
-#define SCRATCH_WIDE_NODE_BBOX_MIN_OFFSET  32
-#define SCRATCH_WIDE_NODE_PARENT_OFFSET    44
-#define SCRATCH_WIDE_NODE_BBOX_MAX_OFFSET  48
-#define SCRATCH_WIDE_NODE_FLAGS_OFFSET     60
-#define SCRATCH_WIDE_NODE_SIZE             64
+#define SCRATCH_WIDE_NODE_CHILDREN0_OR_LEAF_SCRATCH_INDEX_OFFSET 0
+#define SCRATCH_WIDE_NODE_CHILDREN1_OR_LEAF_SCRATCH_INDEX_OFFSET 16
+#define SCRATCH_WIDE_NODE_BBOX_MIN_OFFSET                        32
+#define SCRATCH_WIDE_NODE_SCRATCH_INDEX_OFFSET                   44
+#define SCRATCH_WIDE_NODE_BBOX_MAX_OFFSET                        48
+#define SCRATCH_WIDE_NODE_FLAGS_OFFSET                           60
+#define SCRATCH_WIDE_NODE_SIZE                                   64
 
 //=====================================================================================================================
 static uint CalcScratchWideNodeOffset(

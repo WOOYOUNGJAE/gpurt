@@ -54,6 +54,7 @@ set(gpurtHlsl
 #if GPURT_BUILD_RTIP3_1
     EncodeHwBvh3_1.hlsl
     CollapseScratchBvh.hlsl
+    EncodeScratchBvh.hlsl
     QBVH8Common.hlsl
     ../shadersClean/common/LaneGroup.hlsli
 #endif

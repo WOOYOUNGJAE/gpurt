@@ -537,9 +537,8 @@ void BvhBatcher::BuildMultiDispatch(Util::Span<BvhBuilder> builders)
         Barrier();
         BuildPhase(BuildPhaseFlags::CollapseScratchBvh, builders, &BvhBuilder::CollapseScratchBvh);
 
-        // Temporary code. if this deleted, swap the order of CollapseScratchBvh and EncodeHwBvh.
         Barrier();
-        BuildPhase(BuildPhaseFlags::EncodeHwBvh, builders, &BvhBuilder::EncodeHwBvh);
+        BuildPhase(BuildPhaseFlags::EncodeScratchBvh, builders, &BvhBuilder::EncodeScratchBvh);
     }
     else if (PhaseEnabled(BuildPhaseFlags::EncodeHwBvh))
     {

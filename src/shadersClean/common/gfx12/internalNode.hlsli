@@ -817,7 +817,7 @@ struct QuantizedBVH8BoxNode2
     uint32_t exponentsChildIndexAndChildCount;
 #endif
 
-    uint32_t  mergedMaskAndObbMatrixIndex;
+    uint32_t  leaderMaskAndObbMatrixIndex;
     ChildInfo childInfos[8];
 
 #ifdef __cplusplus
@@ -853,8 +853,8 @@ struct QuantizedBVH8BoxNode2
     void SetIndexInParent(uint indexInParent);
     uint ValidChildCount();
     void SetValidChildCount(uint childCount);
-    uint MergedMask();
-    void SetMergedMask(uint mergedMask);
+    uint LeaderMask();
+    void SetLeaderMask(uint leaderMask);
     void SetLeafPointer(
         uint childIndex,
         uint startTriStructOffset,
@@ -909,7 +909,7 @@ inline void QuantizedBVH8BoxNode2::Init()
     parentPointer = INVALID_NODE;
     origin = float3(0, 0, 0);
     exponentsChildIndexAndChildCount = 0;
-    mergedMaskAndObbMatrixIndex = 0xffffffff;
+    leaderMaskAndObbMatrixIndex = 0xffffffff;
 
     for (uint i = 0; i < 8; i++)
     {
@@ -932,13 +932,13 @@ inline void QuantizedBVH8BoxNode2::SetInternalNodeBaseOffset(uint internalNodeBa
 //=====================================================================================================================
 inline uint QuantizedBVH8BoxNode2::OBBMatrixIndex()
 {
-    return mergedMaskAndObbMatrixIndex & 0x7f;
+    return leaderMaskAndObbMatrixIndex & 0x7f;
 }
 
 //=====================================================================================================================
 inline void QuantizedBVH8BoxNode2::SetOBBMatrixIndex(uint idx)
 {
-    mergedMaskAndObbMatrixIndex |= (idx & 0x7f);
+    leaderMaskAndObbMatrixIndex |= (idx & 0x7f);
 }
 
 //=====================================================================================================================
@@ -1022,16 +1022,16 @@ inline void QuantizedBVH8BoxNode2::SetValidChildCount(uint childCount)
 }
 
 //=====================================================================================================================
-inline uint QuantizedBVH8BoxNode2::MergedMask()
+inline uint QuantizedBVH8BoxNode2::LeaderMask()
 {
-    return bitFieldExtract(mergedMaskAndObbMatrixIndex, 7, 8);
+    return bitFieldExtract(leaderMaskAndObbMatrixIndex, 7, 8);
 }
 
 //=====================================================================================================================
-inline void QuantizedBVH8BoxNode2::SetMergedMask(uint mergedMask)
+inline void QuantizedBVH8BoxNode2::SetLeaderMask(uint leaderMask)
 {
-    mergedMask = mergedMask & 0x7f;
-    mergedMaskAndObbMatrixIndex = bitFieldInsert(mergedMaskAndObbMatrixIndex, 7, 8, mergedMask);
+    leaderMask = leaderMask & 0x7f;
+    leaderMaskAndObbMatrixIndex = bitFieldInsert(leaderMaskAndObbMatrixIndex, 7, 8, leaderMask);
 }
 
 //=====================================================================================================================
@@ -1290,7 +1290,7 @@ inline void QuantizedBVH8BoxNode2::Decode(
     f32BoxNode0.bbox2_max = aabbs[2].max;
     f32BoxNode0.bbox3_min = aabbs[3].min;
     f32BoxNode0.bbox3_max = aabbs[3].max;
-    f32BoxNode0.obbMatrixIndex = mergedMaskAndObbMatrixIndex & 0x7f;
+    f32BoxNode0.obbMatrixIndex = leaderMaskAndObbMatrixIndex & 0x7f;
 
     f32BoxNode1.bbox0_min = aabbs[4].min;
     f32BoxNode1.bbox0_max = aabbs[4].max;

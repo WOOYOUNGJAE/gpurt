@@ -4027,7 +4027,7 @@ BuildPhaseFlags BvhBuilder::EnabledPhases() const
             if (m_buildConfig.enableWideNodeMerging)
             {
                 flags |= BuildPhaseFlags::CollapseScratchBvh;
-                flags |= BuildPhaseFlags::EncodeHwBvh;
+                flags |= BuildPhaseFlags::EncodeScratchBvh;
             }
             else
             {
@@ -4587,6 +4587,28 @@ void BvhBuilder::CollapseScratchBvh()
     INTERNAL_TIMESTAMP_END();
 }
 
+// =====================================================================================================================
+void BvhBuilder::EncodeScratchBvh()
+{
+    BindPipeline(InternalRayTracingCsType::EncodeScratchBvh);
+
+    const uint32 nodeCount       = GetNumInternalNodeCount();
+    const uint32 numThreadGroups = Util::RoundUpQuotient(nodeCount, DefaultThreadGroupSize);
+
+    BuildShaderRootConstants0 shaderConstants =
+    {
+       .numThreads = numThreadGroups * DefaultThreadGroupSize
+    };
+    WriteBuildBufferBindings(shaderConstants);
+
+    INTERNAL_TIMESTAMP_BEGIN();
+
+    RGP_PUSH_MARKER("Encode Scratch BVH (nodeCount %u)", nodeCount);
+    Dispatch(numThreadGroups);
+    RGP_POP_MARKER();
+
+    INTERNAL_TIMESTAMP_END();
+}
 
 // =====================================================================================================================
 // Executes the EncodeHwBvh shader

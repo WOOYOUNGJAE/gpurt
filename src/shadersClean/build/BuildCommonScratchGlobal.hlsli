@@ -66,7 +66,6 @@ void WriteScratchNodeAtOffset(
 }
 
 //=====================================================================================================================
-
 template <typename T>
 T FetchScratchNodeData(
     uint baseScratchNodesOffset,
@@ -266,4 +265,37 @@ void WriteScratchWideNodeAtOffset(
     ScratchGlobal.Store<ScratchWideNode>(nodeOffset, node);
 }
 
+//=====================================================================================================================
+template <typename T>
+T FetchScratchWideNodeData(
+    uint baseScratchWideNodesOffset,
+    uint nodeIndex,
+    uint dataOffset)
+{
+    const uint nodeOffset = baseScratchWideNodesOffset + (nodeIndex * SCRATCH_WIDE_NODE_SIZE);
+    return ScratchGlobal.Load<T>(nodeOffset + dataOffset);
+}
+
+//=====================================================================================================================
+template <typename T>
+void WriteScratchWideNodeData(
+    uint baseScratchWideNodesOffset,
+    uint nodeIndex,
+    uint dataOffset,
+    T data)
+{
+    const uint nodeOffset = baseScratchWideNodesOffset + (nodeIndex * SCRATCH_WIDE_NODE_SIZE);
+    ScratchGlobal.Store<T>(nodeOffset + dataOffset, data);
+}
+
+//=====================================================================================================================
+
+template <typename T>
+void WriteScratchWideNodeDataAtOffset(
+    uint nodeOffset,
+    uint dataOffset,
+    T data)
+{
+    ScratchGlobal.Store<T>(nodeOffset + dataOffset, data);
+}
 #endif

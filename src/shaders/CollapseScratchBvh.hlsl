@@ -7,6 +7,7 @@
 //=====================================================================================================================
 #include "../shadersClean/common/ShaderDefs.hlsli"
 
+
 #define GC_DSTBUFFER
 #define GC_DSTMETADATA
 #define GC_SCRATCHBUFFER
@@ -24,9 +25,10 @@ T LoadInstanceDescBuffer(uint offset)
 }
 #include "IndirectArgBufferUtils.hlsl"
 
-#define MAX_ELEMENTS_PER_THREAD 8
+#define MAX_ELEMENTS_PER_THREAD 8 // 0: for task macro, 
 #define MAX_LDS_ELEMENTS_PER_THREADGROUP (MAX_ELEMENTS_PER_THREAD * BUILD_THREADGROUP_SIZE)
-groupshared uint SharedMem[MAX_LDS_ELEMENTS_PER_THREADGROUP];
+// groupshared uint SharedMem[MAX_LDS_ELEMENTS_PER_THREADGROUP];
+groupshared uint SharedMem[1];
 uint GetSharedMem(uint index)
 {
     return SharedMem[index];
@@ -35,6 +37,16 @@ void SetSharedMem(uint index, uint value)
 {
     SharedMem[index] = value;
 }
+
+#define LANE_GROUP_SIZE 8
+#define NUM_LANE_GROUPS (BUILD_THREADGROUP_SIZE / LANE_GROUP_SIZE)
+#define MAX_ELEMENTS_PER_LANE_GROUP 2
+struct LaneSharedData
+{
+    uint childIndexInParent;
+    uint data;
+};
+groupshared LaneSharedData LaneGroupShared[NUM_LANE_GROUPS][LANE_GROUP_SIZE];
 
 #include "../shadersClean/build/BuildCommonScratch.hlsli"
 #endif
@@ -112,21 +124,15 @@ uint GetNumInlinePrimStructs(
     return numInlinePrimStructs;
 }
 
-//======================================================================================================================
-uint ScratchStackPop(
-    uint stackIndex)
-{
-    return ScratchGlobal.Load<uint>(ShaderConstants.offsets.qbvhGlobalStack + (stackIndex * sizeof(uint2)));
-}
-
 //=====================================================================================================================
 static void PullUpBoxNode(
     LaneGroup                laneGroup,
+    in    bool               isRootNode,
     in    uint               scratchNodesScratchOffset,
     in    uint               scratchWideNodesScratchOffset,
     in    uint               localId,
     in    uint               parentScratchNodeIdx,
-    in    uint               maxNumChildren,
+    in    uint               bvhNodeDstIdx,
     in    uint               numPrimRefs)
 {
 
@@ -142,7 +148,7 @@ static void PullUpBoxNode(
     bool isBox      = false;
     bool needToLoad = false;
     bool isLeaf     = false;
-    uint boxOrLeafChildIndex;
+    uint boxOrLeafChildIndex = INVALID_IDX;
     uint scratchNodeIdx  = INVALID_IDX; // Start with an invalid index for each thread.
     float scratchNodeArea    = -1.0f;   // Mark area as invalid initially.
     ScratchNode scratchNode;
@@ -185,7 +191,7 @@ static void PullUpBoxNode(
 
         numBoxChildren = laneGroup.BallotCount(isBox);
 
-        if ((numBoxChildren == 0) || (firstInvalidLane >= maxNumChildren))
+        if ((numBoxChildren == 0) || (firstInvalidLane >= 8))
         {
             // Break the loop if there are no more box nodes needing to be processed,
             // or if there's no remaining space in the structure.
@@ -234,70 +240,31 @@ static void PullUpBoxNode(
         boxOrLeafChildIndex = laneGroup.ExclusivePrefixSumBool(true);
     }
 
-    uint dstStackIdx = 0;
+    uint dstStackBaseIndex = 0;
     numLeafChildren = laneGroup.BallotCount(isLeaf);
     if (Settings.topLevelBuild == 0)
     {
-        const uint numInlinePrimStructs = GetNumInlinePrimStructs(laneGroup,
-                                                                  scratchNodesScratchOffset,
-                                                                  numPrimRefs,
-                                                                  numLeafChildren,
-                                                                  scratchNodeIdx,
-                                                                  false,
-                                                                  isLeaf);
-
+        const uint numInlinePrimStructs = 0;
         if (laneGroup.IsFirstLane())
         {
+            IncrementAccelStructHeaderField(ACCEL_STRUCT_HEADER_NUM_INTERNAL_FP32_NODES_OFFSET, numBoxChildren);
             const uint stackPtrOffset = ShaderConstants.offsets.qbvhGlobalStackPtrs;
-
-            ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_SRC_PTR_OFFSET, numBoxChildren, dstStackIdx);
-            ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_DST_PTR_OFFSET, numBoxChildren + numInlinePrimStructs, baseDstBoxIdx);
-
-#if DO_NEXT_PHASE
-            baseBoxNodeOffset = offsets.internalNodes + (baseDstBoxIdx * QBVH8::NodeSizeInBytes);
-
-            // BLAS leaf nodes are allocated in a unified data section unlike TLAS which requires the instance nodes
-            // to be in a separate data section for sideband addressing. See ComputeInstanceSidebandOffset()
-            baseLeafNodeOffset = EnableWaveLeafCompressionPass() ?
-                0 : (baseBoxNodeOffset + (numBoxChildren * QBVH8::NodeSizeInBytes));
-#endif
+            ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_SRC_PTR_OFFSET, numBoxChildren, dstStackBaseIndex);
         }
     }
-#if 0 // TLAS merging not supported yet
-    else
-    {
-        if (laneGroup.IsFirstLane())
-        {
-            // TODO: This atomic increment can be removed if we place fp32 node count and leaf node count
-            // adjacent in memory and use a single 64-bit atomic to increment both box and leaf node counts
-            IncrementAccelStructHeaderField(ACCEL_STRUCT_HEADER_NUM_INTERNAL_FP32_NODES_OFFSET, 1);
 
-            // This code assumes STACK_PTRS_SRC_PTR_OFFSET and STACK_PTRS_DST_PTR_OFFSET are in consecutive
-            // DWORDs.
-            const uint stackPtrOffset = ShaderConstants.offsets.qbvhGlobalStackPtrs + STACK_PTRS_SRC_PTR_OFFSET;
-
-            uint baseDstLeafIdx = 0;
-            uint64_t returnVal;
-            ScratchGlobal.InterlockedAdd(stackPtrOffset, numBoxChildren, baseDstBoxIdx);
-            ScratchGlobal.InterlockedAdd(stackPtrOffset + 4, numLeafChildren, baseDstLeafIdx);
-            dstStackIdx = baseDstBoxIdx;
-
-            baseBoxNodeOffset = offsets.internalNodes + (baseDstBoxIdx * QBVH8::NodeSizeInBytes);
-            baseLeafNodeOffset = offsets.leafNodes + (baseDstLeafIdx * QBVH8::NodeSizeInBytes);
-        }
-    }
-#endif
-
-    baseDstBoxIdx = laneGroup.ReadFirstLane(baseDstBoxIdx);
-    dstStackIdx   = laneGroup.ReadFirstLane(dstStackIdx);
+    dstStackBaseIndex = laneGroup.ReadFirstLane(dstStackBaseIndex);
+    baseDstBoxIdx     = dstStackBaseIndex;
 
     // Write box nodes to the global memory to be process by another thread
     if (isBox)
     {
-        uint childStackIdx = dstStackIdx + boxOrLeafChildIndex;
+        const uint childStackIdx = dstStackBaseIndex + boxOrLeafChildIndex;
+        uint dstNodeIdx = baseDstBoxIdx + boxOrLeafChildIndex;
 
         // Regular operation for other threads with isBox set
-        ScratchGlobal.Store<uint>(ShaderConstants.offsets.qbvhGlobalStack + (childStackIdx * sizeof(uint2)), scratchNodeIdx);
+        ScratchGlobal.Store2(ShaderConstants.offsets.qbvhGlobalStack + (childStackIdx * sizeof(uint2)),
+                             uint2(scratchNodeIdx, dstNodeIdx));
     }
     uint childIndexInParent = INVALID_IDX;
     if (isBox)
@@ -309,72 +276,66 @@ static void PullUpBoxNode(
         childIndexInParent = numBoxChildren + boxOrLeafChildIndex;
     }
 
-    ScratchWideNode parentWideNode = (ScratchWideNode)0;
+    // Fill childrenWideNodeIndexOrLeafScratchIndex,
+    // with box children first, then leaf children, and invalid entries for others.
+    uint laneData = INVALID_IDX;
+    if (isBox)
+    {
+        // dst scratch wide node index
+        laneData = baseDstBoxIdx + boxOrLeafChildIndex;
+    }
+    else if (isLeaf)
+    {
+        // scratch node index
+        laneData = scratchNodeIdx;
+    }
+
+    LaneGroupShared[laneGroup.groupIndex][laneGroup.laneIndex].childIndexInParent = childIndexInParent;
+    LaneGroupShared[laneGroup.groupIndex][laneGroup.laneIndex].data = laneData;
+    GroupMemoryBarrier();
+    // Write parent wide node
     if (laneGroup.IsFirstLane())
     {
-        uint dstNodeIndex = baseDstBoxIdx + boxOrLeafChildIndex;
-#if 1
-        uint laneChildIndexInParent[8];
-        laneChildIndexInParent[0] = laneGroup.Broadcast(childIndexInParent, 0);
-        laneChildIndexInParent[1] = laneGroup.Broadcast(childIndexInParent, 1);
-        laneChildIndexInParent[2] = laneGroup.Broadcast(childIndexInParent, 2);
-        laneChildIndexInParent[3] = laneGroup.Broadcast(childIndexInParent, 3);
-        laneChildIndexInParent[4] = laneGroup.Broadcast(childIndexInParent, 4);
-        laneChildIndexInParent[5] = laneGroup.Broadcast(childIndexInParent, 5);
-        laneChildIndexInParent[6] = laneGroup.Broadcast(childIndexInParent, 6);
-        laneChildIndexInParent[7] = laneGroup.Broadcast(childIndexInParent, 7);
-
-        uint sourceLane[8] = { INVALID_IDX, INVALID_IDX, INVALID_IDX, INVALID_IDX, INVALID_IDX, INVALID_IDX, INVALID_IDX, INVALID_IDX };
+        ScratchWideNode parentWideNode = (ScratchWideNode)0;
+        parentWideNode.children0WideNodeIndexOrLeafScratchIndex = 0xffffffff.xxxx;
+        parentWideNode.children1WideNodeIndexOrLeafScratchIndex = 0xffffffff.xxxx;
+        
         [unroll]
         for (uint i = 0; i < 8; ++i)
         {
-            uint idx = laneChildIndexInParent[i];
-            if (idx < 8) // Only for valid
+            uint idx = LaneGroupShared[laneGroup.groupIndex][i].childIndexInParent;
+            uint val = LaneGroupShared[laneGroup.groupIndex][i].data;
+
+            if (idx != INVALID_IDX)
             {
-                sourceLane[idx] = i;
+                GPU_ASSERT(idx < 8);
+                if (idx < 4)
+                {
+                    parentWideNode.children0WideNodeIndexOrLeafScratchIndex[idx] = val;
+                }
+                else
+                {
+                    parentWideNode.children1WideNodeIndexOrLeafScratchIndex[idx - 4] = val;
+                }
             }
         }
 
-        uint laneData[8];
-        laneData[0] = laneGroup.Broadcast(dstNodeIndex, 0);
-        laneData[1] = laneGroup.Broadcast(dstNodeIndex, 1);
-        laneData[2] = laneGroup.Broadcast(dstNodeIndex, 2);
-        laneData[3] = laneGroup.Broadcast(dstNodeIndex, 3);
-        laneData[4] = laneGroup.Broadcast(dstNodeIndex, 4);
-        laneData[5] = laneGroup.Broadcast(dstNodeIndex, 5);
-        laneData[6] = laneGroup.Broadcast(dstNodeIndex, 6);
-        laneData[7] = laneGroup.Broadcast(dstNodeIndex, 7);
 
-        parentWideNode.children0.x = (sourceLane[0] == INVALID_IDX) ? INVALID_IDX : laneData[sourceLane[0]];
-        parentWideNode.children0.y = (sourceLane[1] == INVALID_IDX) ? INVALID_IDX : laneData[sourceLane[1]];
-        parentWideNode.children0.z = (sourceLane[2] == INVALID_IDX) ? INVALID_IDX : laneData[sourceLane[2]];
-        parentWideNode.children0.w = (sourceLane[3] == INVALID_IDX) ? INVALID_IDX : laneData[sourceLane[3]];
+        // const ScratchNode parentScratchNode = FetchScratchNode(scratchNodesScratchOffset, parentScratchNodeIdx);
+        parentWideNode.bbox_min     = FetchScratchNodeData<float3>(scratchNodesScratchOffset, parentScratchNodeIdx, SCRATCH_NODE_BBOX_MIN_OFFSET);
+        parentWideNode.scratchIndex = parentScratchNodeIdx;
+        parentWideNode.bbox_max     = FetchScratchNodeData<float3>(scratchNodesScratchOffset, parentScratchNodeIdx, SCRATCH_NODE_BBOX_MAX_OFFSET);
+        // parentWideNode.boxChildrenBaseDstIndex = baseDstBoxIdx;
 
-        parentWideNode.children1.x = (sourceLane[4] == INVALID_IDX) ? INVALID_IDX : laneData[sourceLane[4]];
-        parentWideNode.children1.y = (sourceLane[5] == INVALID_IDX) ? INVALID_IDX : laneData[sourceLane[5]];
-        parentWideNode.children1.z = (sourceLane[6] == INVALID_IDX) ? INVALID_IDX : laneData[sourceLane[6]];
-        parentWideNode.children1.w = (sourceLane[7] == INVALID_IDX) ? INVALID_IDX : laneData[sourceLane[7]];
-#else
-        // Unsorted
-        parentWideNode.children0.x = WaveReadLaneAt(scratchNodeIdx, 0);
-        parentWideNode.children0.y = WaveReadLaneAt(scratchNodeIdx, 1);
-        parentWideNode.children0.z = WaveReadLaneAt(scratchNodeIdx, 2);
-        parentWideNode.children0.w = WaveReadLaneAt(scratchNodeIdx, 3);
-        parentWideNode.children1.x = WaveReadLaneAt(scratchNodeIdx, 4);
-        parentWideNode.children1.y = WaveReadLaneAt(scratchNodeIdx, 5);
-        parentWideNode.children1.z = WaveReadLaneAt(scratchNodeIdx, 6);
-        parentWideNode.children1.w = WaveReadLaneAt(scratchNodeIdx, 7);
-#endif
+        GPU_ASSERT(numBoxChildren <= 8);
+        uint packedFlags = 0;
+        packedFlags = bitFieldInsert(packedFlags, 0, 4, numBoxChildren);
+        packedFlags = bitFieldInsert(packedFlags, 4, 1, 1);
+        packedFlags = bitFieldInsert(packedFlags, 5, 16, (packedSourceBoxes >> 8)); // TODO: this is child's sourceBox
+        parentWideNode.packedFlags = packedFlags;
 
-        const ScratchNode parentScratchNode = FetchScratchNode(scratchNodesScratchOffset, parentScratchNodeIdx);
-        parentWideNode.bbox_min    = parentScratchNode.bbox_min_or_v0;
-        parentWideNode.scratchIndex = scratchNodeIdx;
-        parentWideNode.bbox_max    = parentScratchNode.bbox_max_or_v1;
-
-        parentWideNode.packedFlags = bitFieldInsert(parentScratchNode.packedFlags, 29, 3, numBoxChildren);
-
-        WriteScratchWideNode(scratchWideNodesScratchOffset, baseDstBoxIdx, parentWideNode);
         ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.scratchWideNodeCounter, 1);
+        WriteScratchWideNode(scratchWideNodesScratchOffset, bvhNodeDstIdx, parentWideNode);
     }
 
     uint localPrimCount = 0;
@@ -428,7 +389,6 @@ void CollapseScratchBvhImpl(
     // we need to use the active primitive count to estimate the hardware internal node count.
     bool isGlobalStackEntryDone = (globalStackIndex >= maxNumInternalNodes);
 
-    const uint maxNumChildren = 8;
     int iteration = 0;
     while (isGlobalStackEntryDone == false)
     {
@@ -446,26 +406,28 @@ void CollapseScratchBvhImpl(
             break;
         }
 
-        uint stackEntry = 0;
+        uint2 stackEntry = uint2(0, 0);
         if (laneGroup.IsFirstLane())
         {
-            stackEntry = ScratchStackPop(globalStackIndex);
+            stackEntry = StackPop(globalStackIndex);
         }
 
         stackEntry = laneGroup.ReadFirstLane(stackEntry);
 
         // If we have a valid node on the stack, process node
-        if (stackEntry != INVALID_IDX)
+        if (stackEntry.x != INVALID_IDX)
         {
-            const uint bvhNodeSrcIdx = stackEntry;
+            const uint bvhNodeSrcIdx = stackEntry.x;
+            const uint bvhNodeDstIdx = stackEntry.y;
 
             // Pull up the nodes chosen by SAH to be the new children in BVH8
             PullUpBoxNode(laneGroup,
+                          (globalStackIndex == 0),
                           scratchNodesScratchOffset,
                           scratchWideNodesScratchOffset,
                           localId,
                           bvhNodeSrcIdx,
-                          maxNumChildren,
+                          bvhNodeDstIdx,
                           numPrimRefs);
 
             isGlobalStackEntryDone = true;
@@ -521,6 +483,9 @@ void CollapseScratchBvh(
         // Clear Task Buffers
         TASK_COUNTER_BUFFER.Store<uint>(TASK_COUNTER_OFFSET, 0);        
         TASK_COUNTER_BUFFER.Store<uint>(NUM_TASKS_DONE_OFFSET, 0);
+        GPU_DPF("numLeafsDone: %d", ScratchGlobal.Load(ShaderConstants.offsets.qbvhGlobalStackPtrs +
+                                NumLeafsDoneOffset()));
+        // GPU_DPF("numLeafChildren: %d", ScratchGlobal.Load(ShaderConstants.offsets.scratchWideNodeCounter)); // 15937
     }
 #endif
 }

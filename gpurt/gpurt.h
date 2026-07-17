@@ -366,6 +366,7 @@ enum class InternalRayTracingCsType : uint32
     BuildSingleThreadGroup1024,
     EncodeHwBvh3_1,
     CollapseScratchBvh,
+    EncodeScratchBvh,
     Update3_1,
     RefitInstanceBounds,
 #endif

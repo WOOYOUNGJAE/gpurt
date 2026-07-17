@@ -48,9 +48,9 @@ enum class BuildPhaseFlags : uint32_t
     GenerateMortonCodes           = 1 << 3,
     MergeSort                     = 1 << 4,
     RadixSort                     = 1 << 5,
-    // Unused6                    = 1 << 6,
+    CollapseScratchBvh            = 1 << 6,
     BuildPLOC                     = 1 << 7,
-    CollapseScratchBvh            = 1 << 8,
+    EncodeScratchBvh             = 1 << 8,
     PairCompression               = 1 << 9,
 #if GPURT_BUILD_RTIP3_1
     CompressPrims                 = 1 << 10,
@@ -83,12 +83,14 @@ static const char* BuildPhaseName(BuildPhaseFlags phase)
         return "MergeSort";
     case GpuRt::BuildPhaseFlags::RadixSort:
         return "RadixSort";
+    case GpuRt::BuildPhaseFlags::CollapseScratchBvh:
+        return "CollapseScratchBvh";
     case GpuRt::BuildPhaseFlags::OnesweepRadixSort:
         return "OnesweepRadixSort";
     case GpuRt::BuildPhaseFlags::BuildPLOC:
         return "BuildPLOC";
-    case GpuRt::BuildPhaseFlags::CollapseScratchBvh:
-        return "CollapseScratchBvh";
+    case GpuRt::BuildPhaseFlags::EncodeScratchBvh:
+        return "EncodeScratchBvh";
     case GpuRt::BuildPhaseFlags::PairCompression:
         return "PairCompression";
 #if GPURT_BUILD_RTIP3_1

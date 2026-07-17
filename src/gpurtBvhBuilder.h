@@ -377,6 +377,8 @@ private:
 
     void CollapseScratchBvh();
 
+    void EncodeScratchBvh();
+
     void EncodeHwBvh();
 
 #if GPURT_BUILD_RTIP3_1
