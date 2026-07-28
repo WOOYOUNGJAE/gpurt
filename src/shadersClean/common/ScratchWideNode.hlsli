@@ -19,9 +19,10 @@ struct ScratchWideNode
     uint   packedFlags; // flags [0:7], instanceMask [8:15], quadSwizzle [16:23]
 #if GPURT_BUILD_RTIP3_1
                         // Triangle OBB matrix index [0:7] for primitive nodes (not supported)
-                        // packedSourceBoxes from collapsing phase [16:31] for internal nodes
-                        // leader mask of child nodes [5:12] for internal nodes
-                        // whether this node is the leader box node [4] for internal nodes
+                        // unused [16:31] for internal nodes
+                        // leader mask of child nodes [9:16] for internal nodes
+                        // whether this node is the leader box node [8] for internal nodes
+                        // Number of leaf children [4:7] for internal nodes
                         // Number of box children [0:3] for internal nodes
 #endif
 };

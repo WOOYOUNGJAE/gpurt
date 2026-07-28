@@ -242,6 +242,7 @@ static void PullUpBoxNode(
 
     uint dstStackBaseIndex = 0;
     numLeafChildren = laneGroup.BallotCount(isLeaf);
+    GPU_ASSERT(numBoxChildren + numLeafChildren > 0 && numBoxChildren + numLeafChildren <= 8);
     if (Settings.topLevelBuild == 0)
     {
         const uint numInlinePrimStructs = 0;
@@ -330,8 +331,9 @@ static void PullUpBoxNode(
         GPU_ASSERT(numBoxChildren <= 8);
         uint packedFlags = 0;
         packedFlags = bitFieldInsert(packedFlags, 0, 4, numBoxChildren);
-        packedFlags = bitFieldInsert(packedFlags, 4, 1, 1);
-        packedFlags = bitFieldInsert(packedFlags, 5, 16, (packedSourceBoxes >> 8)); // TODO: this is child's sourceBox
+        packedFlags = bitFieldInsert(packedFlags, 4, 4, numLeafChildren);
+        packedFlags = bitFieldInsert(packedFlags, 8, 1, 1);
+        // packedFlags = bitFieldInsert(packedFlags, 5, 16, (packedSourceBoxes >> 8)); // TODO: this is child's sourceBox
         parentWideNode.packedFlags = packedFlags;
 
         ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.scratchWideNodeCounter, 1);

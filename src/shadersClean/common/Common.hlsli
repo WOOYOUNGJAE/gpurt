@@ -34,6 +34,8 @@
 #ifndef _COMMON_HLSL
 #define _COMMON_HLSL
 
+#define MERGE_BOX_NODES_RTIP3_1 1
+
 #include "InstanceDesc.hlsli"
 #include "../../../gpurt/gpurtAccelStruct.h"
 
@@ -291,6 +293,7 @@ static uint CreateRootNodePointer(
     bool bvh8Enable
 #if GPURT_BUILD_RTIP3_1
   , bool enableCompressedFormat
+  , bool overrideCompressedFormat = false
 #endif
 #endif
 );

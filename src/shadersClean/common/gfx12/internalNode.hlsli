@@ -1223,11 +1223,11 @@ inline void QuantizedBVH8BoxNode2::Decode(
     bool previousRangeZero = false;
 
     uint3 exponents = Exponents();
-
+    uint leaderMask = LeaderMask();
     // Valid children are always packed from the start of the node.
     for (uint i = 0; i < 8; i++)
     {
-        if (i < aabbCount)
+        if (i < aabbCount || (leaderMask & (1u << i)) != 0)
         {
             // Decode the child offset.
             // There are two running offsets: one for internal node children (boxes), and one for

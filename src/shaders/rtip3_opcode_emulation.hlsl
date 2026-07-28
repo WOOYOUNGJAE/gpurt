@@ -783,6 +783,61 @@ static QuantizedBVH8BoxNode FetchQuantizedBVH8BoxNode(
 }
 
 //=====================================================================================================================
+static QuantizedBVH8BoxNode2 FetchQuantizedBVH8BoxNode2(
+    in GpuVirtualAddress bvhAddress,
+    in uint              nodePointer)
+
+{
+    const uint byteOffset = ExtractNodePointerOffset(nodePointer);
+    const GpuVirtualAddress nodeAddr = bvhAddress + byteOffset;
+
+    uint4 d0, d1, d2, d3, d4, d5, d6, d7;
+    d0 = LoadDwordAtAddrx4(nodeAddr);
+    d1 = LoadDwordAtAddrx4(nodeAddr + 0x10);
+    d2 = LoadDwordAtAddrx4(nodeAddr + 0x20);
+    d3 = LoadDwordAtAddrx4(nodeAddr + 0x30);
+    d4 = LoadDwordAtAddrx4(nodeAddr + 0x40);
+    d5 = LoadDwordAtAddrx4(nodeAddr + 0x50);
+    d6 = LoadDwordAtAddrx4(nodeAddr + 0x60);
+    d7 = LoadDwordAtAddrx4(nodeAddr + 0x70);
+
+    QuantizedBVH8BoxNode2 result;
+
+    result.internalNodeBaseOffset                     = d0.x;
+    result.leafNodeBaseOffset                         = d0.y;
+    result.parentPointer                              = d0.z;
+    result.origin                                     = float3(asfloat(d0.w), asfloat(d1.xy));
+    result.exponentsChildIndexAndChildCount           = d1.z;
+    result.leaderMaskAndObbMatrixIndex                = d1.w & 0xFFFF;
+    result.childInfos[0].minXMinYAndCullingFlags      = d2.x;
+    result.childInfos[0].minZMaxXAndInstanceMask      = d2.y;
+    result.childInfos[0].maxYMaxZNodeTypeAndNodeRange = d2.z;
+    result.childInfos[1].minXMinYAndCullingFlags      = d2.w;
+    result.childInfos[1].minZMaxXAndInstanceMask      = d3.x;
+    result.childInfos[1].maxYMaxZNodeTypeAndNodeRange = d3.y;
+    result.childInfos[2].minXMinYAndCullingFlags      = d3.z;
+    result.childInfos[2].minZMaxXAndInstanceMask      = d3.w;
+    result.childInfos[2].maxYMaxZNodeTypeAndNodeRange = d4.x;
+    result.childInfos[3].minXMinYAndCullingFlags      = d4.y;
+    result.childInfos[3].minZMaxXAndInstanceMask      = d4.z;
+    result.childInfos[3].maxYMaxZNodeTypeAndNodeRange = d4.w;
+    result.childInfos[4].minXMinYAndCullingFlags      = d5.x;
+    result.childInfos[4].minZMaxXAndInstanceMask      = d5.y;
+    result.childInfos[4].maxYMaxZNodeTypeAndNodeRange = d5.z;
+    result.childInfos[5].minXMinYAndCullingFlags      = d5.w;
+    result.childInfos[5].minZMaxXAndInstanceMask      = d6.x;
+    result.childInfos[5].maxYMaxZNodeTypeAndNodeRange = d6.y;
+    result.childInfos[6].minXMinYAndCullingFlags      = d6.z;
+    result.childInfos[6].minZMaxXAndInstanceMask      = d6.w;
+    result.childInfos[6].maxYMaxZNodeTypeAndNodeRange = d7.x;
+    result.childInfos[7].minXMinYAndCullingFlags      = d7.y;
+    result.childInfos[7].minZMaxXAndInstanceMask      = d7.z;
+    result.childInfos[7].maxYMaxZNodeTypeAndNodeRange = d7.w;
+
+    return result;
+}
+
+//=====================================================================================================================
 static void PerformInstanceMaskCulling(
     inout_param(Float32BoxNode) node,
     in uint                     instanceMask)
@@ -909,19 +964,21 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
     // pair0-3 and pair4-7 are identical.
     const uint nodeType = (nodePtr & 7);
 
-    if (nodeType == 4) // bvh8_box_128_2
-    {
-        
-    }
-    else if (nodeType == 5) // bvh8_box_128
+
+    if (nodeType == NODE_TYPE_BOX_QUANTIZED_BVH8_2 || nodeType == 5) // bvh8_box_128
     {
         Float32BoxNode node0 = (Float32BoxNode)0;
         Float32BoxNode node1 = (Float32BoxNode)0;
         uint parentPointer;
+        uint obbMatrixIndex;
 
-        QuantizedBVH8BoxNode node = FetchQuantizedBVH8BoxNode(ExtractInstanceAddr(baseNodePtr), nodePtr);
-        // uint mergeMask;
-        node.Decode(node0, node1, parentPointer);
+        if (nodeType == NODE_TYPE_BOX_QUANTIZED_BVH8_2)
+        {
+            // TODO;
+            QuantizedBVH8BoxNode2 node = FetchQuantizedBVH8BoxNode2(ExtractInstanceAddr(baseNodePtr), nodePtr);
+            node.Decode(node0, node1, parentPointer);
+            obbMatrixIndex = INVALID_OBB;
+        }
 
         PerformEarlyBoxCulling(node0, baseNodePtr);
         PerformEarlyBoxCulling(node1, baseNodePtr);
@@ -932,9 +989,9 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
         // OBB Transform
         float3 localRayOrigin = rayOrigin;
         float3 localRayDir = rayDir;
-        if (node.obbMatrixIndex != INVALID_OBB && IsOrientedBoundingBoxesEnabled())
+        if (obbMatrixIndex != INVALID_OBB && IsOrientedBoundingBoxesEnabled())
         {
-            float3x3 obbMatrix = OBBIndexToMatrix(node.obbMatrixIndex);
+            float3x3 obbMatrix = OBBIndexToMatrix(obbMatrixIndex);
 
             OBBTransform(obbMatrix,
                          rayOrigin,
