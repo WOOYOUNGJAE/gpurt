@@ -274,18 +274,6 @@ static bool IsQuantizedBVH8BoxNode(uint pointer)
 {
     return NodeTypeIsQuantizedBVH8BoxNode(GetNodeType(pointer));
 }
-
-//=====================================================================================================================
-static bool NodeTypeIsQuantizedBVH8BoxNode2(uint nodeType)
-{
-    return (nodeType == NODE_TYPE_BOX_QUANTIZED_BVH8_2);
-}
-
-//=====================================================================================================================
-static bool IsQuantizedBVH8BoxNode2(uint pointer)
-{
-    return NodeTypeIsQuantizedBVH8BoxNode2(GetNodeType(pointer));
-}
 #endif
 #endif
 
@@ -305,7 +293,7 @@ static bool NodeTypeIsBoxNode(
 #if GPURT_BUILD_RTIP3_1
     if (enableCompressedFormat)
     {
-        return (NodeTypeIsQuantizedBVH8BoxNode(nodeType) || NodeTypeIsQuantizedBVH8BoxNode2(nodeType));
+        return (NodeTypeIsQuantizedBVH8BoxNode(nodeType));
     }
     else
 #endif
@@ -362,7 +350,6 @@ static uint CreateRootNodePointer(
     bool bvh8Enable
 #if GPURT_BUILD_RTIP3_1
   , bool enableCompressedFormat
-  , bool overrideCompressedFormat
 #endif
 #endif
 )
@@ -373,12 +360,6 @@ static uint CreateRootNodePointer(
     if (enableCompressedFormat)
     {
         nodeType = NODE_TYPE_BOX_QUANTIZED_BVH8;
-#if MERGE_BOX_NODES_RTIP3_1
-        if (overrideCompressedFormat)
-        {
-            nodeType = NODE_TYPE_BOX_QUANTIZED_BVH8_2;
-        }
-#endif
     }
     else
 #endif
@@ -408,13 +389,7 @@ static uint CreateRootNodePointer(
 //=====================================================================================================================
 static uint CreateRootNodePointer3_1()
 {
-    return CreateRootNodePointer(false, true, true, false);
-}
-
-//=====================================================================================================================
-static uint CreateRootNodePointer3_1(bool overrideCompressedFormat)
-{
-    return CreateRootNodePointer(false, true, true, overrideCompressedFormat);
+    return CreateRootNodePointer(false, true, true);
 }
 #endif
 

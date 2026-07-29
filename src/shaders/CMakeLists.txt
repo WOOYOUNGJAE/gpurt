@@ -205,7 +205,6 @@ set(otherDeps
     ../shadersClean/common/gfx12/childInfo.hlsl
     ../shadersClean/common/gfx12/internalNode.hlsli
     ../shadersClean/common/gfx12/primitiveNode.hlsli
-    ../shadersClean/common/gfx12/internalBlock.hlsli
     ../shared/gpurtShaderConstants.h
 #endif
     ../shadersClean/common/Bits.hlsli

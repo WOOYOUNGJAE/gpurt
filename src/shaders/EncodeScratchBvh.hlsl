@@ -24,8 +24,6 @@
  **********************************************************************************************************************/
 #ifndef _ENCODE_SCRATCH_BVH_HLSL
 #define _ENCODE_SCRATCH_BVH_HLSL
-#define ENCODE_DEBUG 1
-// #define MERGE_BOX_NODES_RTIP3_1 1
 #define USE_LDS_CHILDREN 1
 #define NOT_SUPPORTED_IF_ZERO 0
 #if NO_SHADER_ENTRYPOINT == 0
@@ -704,7 +702,6 @@ static bool TryMergeNodes(
 
     return true;
 }
-#if MERGE_BOX_NODES_RTIP3_1
 #if USE_LDS_CHILDREN
 //=====================================================================================================================
 static bool MergeBoxNodes(
@@ -729,8 +726,8 @@ static bool MergeBoxNodes(
         childNode.bbox_min = float3(FLT_MAX, FLT_MAX, FLT_MAX);
         childNode.bbox_max = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
     }
-    const uint numBoxesInChild = bitFieldExtract(childNode.packedFlags, 0, 4);
-    const uint numLeavesInChild = bitFieldExtract(childNode.packedFlags, 4, 4);
+    const uint numBoxesInChild  = childIsBox ? bitFieldExtract(childNode.packedFlags, 0, 4) : 0;
+    const uint numLeavesInChild = childIsBox ? bitFieldExtract(childNode.packedFlags, 4, 4) : 0;
 
     // Merge Scratch Wide Node
     uint targetLane = firstbitlow(childBoxMask);
@@ -745,7 +742,7 @@ static bool MergeBoxNodes(
         const uint sourceLane = firstbitlow(remaining);
         GPU_ASSERT(targetLane < 8 && sourceLane < 8);
 
-        uint numBoxesInSource = laneGroup.Broadcast(numBoxesInChild, sourceLane);
+        uint numBoxesInSource  = laneGroup.Broadcast(numBoxesInChild, sourceLane);
         uint numLeavesInSource = laneGroup.Broadcast(numLeavesInChild, sourceLane);
         mergedCount += (numBoxesInSource + numLeavesInSource);
         // Try Merge
@@ -760,18 +757,22 @@ static bool MergeBoxNodes(
         else
         {
             // Merge success
-            GPU_ASSERT(laneGroup.Ballot(true) == bits(8)); // Ensure all lanes are active and executing the same branch.
-
             // Merge phase 0: Initial Stauts
             // Shared: [-, -, -, -, -, -, -, -]
             // Target: [B, B, B, L, L, -, -, -]
             // Source: [B, B, L, -, -, -, -, -]
 
+            GPU_ASSERT(laneGroup.Ballot(true) == bits(8)); // Ensure all lanes are active and executing the same branch.
+
             // Update bounding box
             float3 bbox_min = min(laneGroup.Broadcast(childNode.bbox_min, targetLane), laneGroup.Broadcast(childNode.bbox_min, sourceLane));
             float3 bbox_max = max(laneGroup.Broadcast(childNode.bbox_max, targetLane), laneGroup.Broadcast(childNode.bbox_max, sourceLane));
 
-            // Fill shared memory with the source node's children.
+            // Merge phase 1: Copy source children to shared memory.
+            // (Shared = SourceBoxes + SourceLeaves)
+            // Shared: [B, B, L, -, -, -, -, -]
+            // Target: [B, B, B, L, L, -, -, -]
+            // Source: [B, B, L, -, -, -, -, -]
             if (laneGroup.laneIndex == sourceLane)
             {
                 SetSharedChildren(laneGroup.groupIndex, 0, childNode.children0WideNodeIndexOrLeafScratchIndex.x);
@@ -787,13 +788,13 @@ static bool MergeBoxNodes(
                 isMergedLane = true;
             }
             GroupMemoryBarrier();
-            // Merge phase 1: Copy source children to shared memory.
-            // (Shared = SourceBoxes + SourceLeaves)
-            // Shared: [B, B, L, -, -, -, -, -]
-            // Target: [B, B, B, L, L, -, -, -]
-            // Source: [B, B, L, -, -, -, -, -]
             if (laneGroup.laneIndex == targetLane)
             {
+            // Merge phase 2: Copy target's leaf children to shared memory after existing leaf children.
+            // (Shared = SourceBoxes + SourceLeaves + TargetLeaves)
+            // Shared: [B, B, L, L, L, -, -, -]
+            // Target: [B, B, B, L, L, -, -, -]
+            // Source: [B, B, L, -, -, -, -, -]
                 // Append the target node's leaf children after the source node's box children in shared memory.
                 for (uint i = 0; i < numLeavesInTarget; ++i)
                 {
@@ -808,10 +809,10 @@ static bool MergeBoxNodes(
                         SetSharedChildren(laneGroup.groupIndex, numSourceChildren + i, childNode.children1WideNodeIndexOrLeafScratchIndex[leafIndex - 4]);
                     }
                 }
-            // Merge phase 2: Copy target's leaf children to shared memory after existing leaf children.
-            // (Shared = SourceBoxes + SourceLeaves + TargetLeaves)
+            // Merge phase 3: Copy Shared children back to target's boxes
+            // (Target = TargetBoxes + Shared)
             // Shared: [B, B, L, L, L, -, -, -]
-            // Target: [B, B, B, L, L, -, -, -]
+            // Target: [B, B, B, B, B, L, L, L]
             // Source: [B, B, L, -, -, -, -, -]
                 for (uint i = numBoxesInTarget; i < mergedCount; ++i)
                 {
@@ -824,11 +825,6 @@ static bool MergeBoxNodes(
                         childNode.children1WideNodeIndexOrLeafScratchIndex[i - 4] = GetSharedChildren(laneGroup.groupIndex, i - numBoxesInTarget);
                     }
                 }
-            // Merge phase 3: Copy Shared children back to target's boxes
-            // (Target = TargetBoxes + Shared)
-            // Shared: [B, B, L, L, L, -, -, -]
-            // Target: [B, B, B, B, B, L, L, L]
-            // Source: [B, B, L, -, -, -, -, -]
 
                 // bounding box
                 childNode.bbox_min = bbox_min;
@@ -839,7 +835,7 @@ static bool MergeBoxNodes(
                 childNode.packedFlags = bitFieldInsert(childNode.packedFlags, 4, 4, numLeavesInTarget + numLeavesInSource);
             }
             
-            numBoxesInTarget += numBoxesInSource;
+            numBoxesInTarget  += numBoxesInSource;
             numLeavesInTarget += numLeavesInSource;
             // Mark source node as a merge candidate. (sourceLane -> 0)
             leaderNodeMask &= ~(1u << sourceLane);
@@ -870,19 +866,19 @@ static bool MergeBoxNodes(
         else
         {
             // Clear Node
-            ScratchWideNode emptyNode;
-            emptyNode.children0WideNodeIndexOrLeafScratchIndex = 0xffffffff.xxxx;
-            emptyNode.children1WideNodeIndexOrLeafScratchIndex = 0xffffffff.xxxx;
-            emptyNode.bbox_min = float3(FLT_MAX, FLT_MAX, FLT_MAX);
-            emptyNode.scratchIndex = INVALID_IDX;
-            emptyNode.bbox_max = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
-            emptyNode.packedFlags = 0;
-            WriteScratchWideNode(scratchNodesScratchOffset, childWideScratchIndex, emptyNode);
+            // ScratchWideNode emptyNode;
+            // emptyNode.children0WideNodeIndexOrLeafScratchIndex = 0xffffffff.xxxx;
+            // emptyNode.children1WideNodeIndexOrLeafScratchIndex = 0xffffffff.xxxx;
+            // emptyNode.bbox_min = float3(FLT_MAX, FLT_MAX, FLT_MAX);
+            // emptyNode.scratchIndex = INVALID_IDX;
+            // emptyNode.bbox_max = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+            // emptyNode.packedFlags = 0;
+            // WriteScratchWideNode(scratchNodesScratchOffset, childWideScratchIndex, emptyNode);
 
-            // // Update Flags - mark as 0 to indicate this is not a leader node.
-            // // const uint packedFlags = bitFieldInsert(childNode.packedFlags, 8, 1, 0);
-            // const uint packedFlags = 0;
-            // WriteScratchWideNodeData(scratchNodesScratchOffset, childWideScratchIndex, SCRATCH_WIDE_NODE_FLAGS_OFFSET, packedFlags);
+            // Update Flags - mark as 0 to indicate this is not a leader node.
+            // const uint packedFlags = bitFieldInsert(childNode.packedFlags, 8, 1, 0);
+            const uint packedFlags = 0;
+            WriteScratchWideNodeData(scratchNodesScratchOffset, childWideScratchIndex, SCRATCH_WIDE_NODE_FLAGS_OFFSET, packedFlags);
 
             // uint4 emptyChildren = 0xffffffff.xxxx;
             // WriteScratchWideNodeData<uint4>(scratchNodesScratchOffset, childWideScratchIndex, SCRATCH_WIDE_NODE_CHILDREN0_OR_LEAF_SCRATCH_INDEX_OFFSET, emptyChildren);
@@ -892,12 +888,8 @@ static bool MergeBoxNodes(
     return isMergedLane;
 }
 #endif
-#endif
 //=====================================================================================================================
 static void EncodeCompressedBoxNode(
-#if ENCODE_DEBUG
-    in    uint               globalStackIndex,
-#endif
     LaneGroup                laneGroup,
     in    uint               rootNodeIndex,
     in    uint               scratchNodesScratchOffset,
@@ -967,7 +959,7 @@ static void EncodeCompressedBoxNode(
         children8[7] = scratchWideNode.children1WideNodeIndexOrLeafScratchIndex.w;
 #endif
         parentWideNodePackedFlags = scratchWideNode.packedFlags;
-        GPU_ASSERT(bitFieldExtract(parentWideNodePackedFlags, 8, 1) == 1); // Ensure this is a leader node
+        // GPU_ASSERT(bitFieldExtract(parentWideNodePackedFlags, 8, 1) == 1);
         numBoxChildren = bitFieldExtract(parentWideNodePackedFlags, 0, 4);
         GPU_ASSERT(numBoxChildren <= 8);
     }
@@ -981,18 +973,19 @@ static void EncodeCompressedBoxNode(
     }
     childWideScratchIndex = children8[laneGroup.laneIndex];
 #endif
+
+#if MERGE_BOX_NODES_RTIP3_1
+    parentWideNodePackedFlags = laneGroup.ReadFirstLane(parentWideNodePackedFlags);
+    if (bitFieldExtract(parentWideNodePackedFlags, 8, 1) == 0) { return; } // Early return for merged nodes
+#endif
+
     parentScratchNodeIdx = laneGroup.ReadFirstLane(parentScratchNodeIdx);
     numBoxChildren = laneGroup.ReadFirstLane(numBoxChildren);
-    bool childIsBox = (laneGroup.laneIndex < numBoxChildren) && (childWideScratchIndex != INVALID_IDX);
     bool isValidChild = (childWideScratchIndex != INVALID_IDX);
-
+    const bool childIsBox = (laneGroup.laneIndex < numBoxChildren) && (childWideScratchIndex != INVALID_IDX);
     const bool childIsLeaf = (laneGroup.laneIndex >= numBoxChildren) && (childWideScratchIndex != INVALID_IDX);
     numLeafChildren = laneGroup.BallotCount(childIsLeaf);
 
-    
-#if MERGE_BOX_NODES_RTIP3_1
-    // Adjust boxOrLeafChildIndex since merged box nodes are marked invalid.
-#endif
     uint boxOrLeafChildIndex = childIsBox ? laneGroup.laneIndex : laneGroup.laneIndex - numBoxChildren;
 
     const uint numOrigianlBoxChildren = numBoxChildren;
@@ -1006,10 +999,6 @@ static void EncodeCompressedBoxNode(
 
     const uint numLeaderBoxChildren = countbits(leaderBoxMask);
     const uint numMergedBoxChildren = countbits(mergedBoxMask);
-    // if (numBoxChildren && (numBoxChildren != numLeaderBoxChildren) && laneGroup.IsFirstLane())
-    // {
-    //     GPU_DPF("numBoxChildren: %d, numLeaderBoxChildren: %d, numMergedBoxChildren: %d", numBoxChildren, numLeaderBoxChildren, numMergedBoxChildren);
-    // }
 
     // Write leader box mask to parent node
     if (laneGroup.IsFirstLane())
@@ -1018,14 +1007,6 @@ static void EncodeCompressedBoxNode(
         WriteScratchWideNodeData(scratchWideNodesScratchOffset, parentWideScratchNodeIndex, SCRATCH_WIDE_NODE_FLAGS_OFFSET, parentWideNodePackedFlags);
     }
 
-    // Make merged box invalid
-    childIsBox = isLeaderBoxChild;
-    numBoxChildren = numLeaderBoxChildren;
-    isValidChild = isValidChild && !isMergedBoxChild;
-    if (isMergedBoxChild)
-    {
-        childWideScratchIndex = INVALID_IDX;
-    }
 #endif // MERGE_BOX_NODES_RTIP3_1
 
     if (Settings.topLevelBuild == 0)
@@ -1038,7 +1019,7 @@ static void EncodeCompressedBoxNode(
             const uint stackPtrOffset = ShaderConstants.offsets.qbvhGlobalStackPtrs;
             // ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_DST_PTR_OFFSET, numOrigianlBoxChildren + numInlinePrimStructs);
             
-            ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_DST_PTR_OFFSET, numBoxChildren + numInlinePrimStructs, dstStackIdx);
+            ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_DST_PTR_OFFSET, numOrigianlBoxChildren + numInlinePrimStructs, dstStackIdx);
         }
     }
 
@@ -1055,14 +1036,6 @@ static void EncodeCompressedBoxNode(
     dstStackIdx       = laneGroup.ReadFirstLane(dstStackIdx);
     baseDstBoxIdx     = laneGroup.ReadFirstLane(baseDstBoxIdx);
     baseBoxNodeOffset = laneGroup.ReadFirstLane(baseBoxNodeOffset);
-
-#if MERGE_BOX_NODES_RTIP3_1
-    if (isLeaderBoxChild)
-    {
-        boxOrLeafChildIndex = laneGroup.ExclusivePrefixSumBool(true);
-    }
-#endif // MERGE_BOX_NODES_RTIP3_1
-
 
     if (isValidChild)
     {
@@ -1087,8 +1060,6 @@ static void EncodeCompressedBoxNode(
     if (laneGroup.IsFirstLane())
     {
         const ScratchNode parentScratchNode = FetchScratchNode(scratchNodesScratchOffset, parentScratchNodeIdx);
-
-        const bool isLeafNode = IsLeafNode(parentScratchNodeIdx, numPrimRefs);
         // Fetch bounding box data from the wide node, as merged nodes may have changed
         parentBbox.min = FetchScratchWideNodeData<float3>(scratchWideNodesScratchOffset, parentWideScratchNodeIndex, SCRATCH_WIDE_NODE_BBOX_MIN_OFFSET);
         parentBbox.max = FetchScratchWideNodeData<float3>(scratchWideNodesScratchOffset, parentWideScratchNodeIndex, SCRATCH_WIDE_NODE_BBOX_MAX_OFFSET);
@@ -1157,12 +1128,8 @@ static void EncodeCompressedBoxNode(
         // leaf nodes. If we are not compressing, a single triangle primitive structure is produced immediately.
         // Either way the triangle node type field is 0.
         const uint nodeType        = childIsLeaf ? (Settings.topLevelBuild ?
-                                               NODE_TYPE_USER_NODE_INSTANCE : NODE_TYPE_TRIANGLE_0) :
-#if MERGE_BOX_NODES_RTIP3_1
-                                               NODE_TYPE_BOX_QUANTIZED_BVH8_2;
-#else                                               
-                                               NODE_TYPE_BOX_QUANTIZED_BVH8;
-#endif
+                                                    NODE_TYPE_USER_NODE_INSTANCE : NODE_TYPE_TRIANGLE_0) :
+                                                    NODE_TYPE_BOX_QUANTIZED_BVH8;
         const uint primRangeLength = childIsLeaf ? (EnableLeafCompressionPass() ? 0 : 1) : 1;
         const uint baseNodeOffset  = childIsLeaf ? baseLeafNodeOffset : baseBoxNodeOffset;
         const uint offset          = childIsLeaf ? boxOrLeafChildIndex + numBoxChildren : boxOrLeafChildIndex;
@@ -1173,17 +1140,7 @@ static void EncodeCompressedBoxNode(
 #if MERGE_BOX_NODES_RTIP3_1
         // Child bounding boxes are updated after merging, so they must be fetched from the scratch wide node rather than the scratch node.
 #endif
-        if (childIsBox)
-        {
-            childBbox.min = FetchScratchWideNodeData<float3>(scratchWideNodesScratchOffset, childWideScratchIndex, SCRATCH_WIDE_NODE_BBOX_MIN_OFFSET);
-            childBbox.max = FetchScratchWideNodeData<float3>(scratchWideNodesScratchOffset, childWideScratchIndex, SCRATCH_WIDE_NODE_BBOX_MAX_OFFSET);
-        }
-        else
-        {
-            childBbox = GetScratchNodeBoundingBoxTS(scratchNodesScratchOffset, true, childScratchNode);
-            // childBbox.min = childScratchNode.bbox_min_or_v0;
-            // childBbox.max = childScratchNode.bbox_max_or_v1;
-        }
+        childBbox = GetScratchNodeBoundingBoxTS(scratchNodesScratchOffset, childIsLeaf, childScratchNode);
         // uint childPackedFlags = FetchScratchNodeData<uint>(scratchNodesScratchOffset, childScratchNodeIndex, SCRATCH_NODE_FLAGS_OFFSET);
         const uint3 childInfo = ComputePackedChildInfo(childBbox,
                                                        childScratchNode.packedFlags,
@@ -1218,12 +1175,7 @@ static void EncodeCompressedBoxNode(
     }
     else
     {
-#if MERGE_BOX_NODES_RTIP3_1
-        const uint invalidIndex = validChildCount + laneGroup.ExclusivePrefixSumBool(true);
-        QBVH8::WriteInvalidChildInfo(currNodeOffset, invalidIndex);
-#else
-        QBVH8::WriteInvalidChildInfo(currNodeOffset, laneGroup.laneIndex)
-#endif
+        QBVH8::WriteInvalidChildInfo(currNodeOffset, laneGroup.laneIndex);
     }
     // TODO : OBB preparation
 
@@ -1318,14 +1270,7 @@ void EncodeScratchBvhImpl(
                 const uint instanceMask =
                     ExtractScratchNodeInstanceMask(rootScratchNode.packedFlags);
 
-                const uint blasRootNodePointer = 
-#if MERGE_BOX_NODES_RTIP3_1
-                CreateRootNodePointer();
-                // PackNodePointer(NODE_TYPE_BOX_QUANTIZED_BVH8_2, sizeof(AccelStructHeader));
-#else
-                CreateRootNodePointer();
-#endif
-
+                const uint blasRootNodePointer = CreateRootNodePointer3_1();
                 WriteInstancePassthrough(blasRootNodePointer,
                                          bbox,
                                          ACCEL_STRUCT_METADATA_INSTANCE_NODE_OFFSET);
@@ -1401,18 +1346,9 @@ void EncodeScratchBvhImpl(
             const uint indexInParent = GetStackDstIdxInParent(stackEntry.y);
             // if (laneGroup.IsFirstLane()) GPU_ASSERT(globalStackIndex == bvhNodeDstIdx); // passed
             const uint currNodeAddr = offsets.internalNodes + (bvhNodeDstIdx * QBVH8::NodeSizeInBytes);
-            const uint currNodePtr = 
-#if MERGE_BOX_NODES_RTIP3_1
-                PackNodePointer(NODE_TYPE_BOX_QUANTIZED_BVH8_2, currNodeAddr);
-#else            
-                CreateBoxNodePointer(currNodeAddr, false);
-#endif
+            const uint currNodePtr = CreateBoxNodePointer(currNodeAddr, false);
             // Pull up the nodes chosen by SAH to be the new children in BVH8
-            EncodeCompressedBoxNode(
-#if ENCODE_DEBUG
-                                    globalStackIndex,
-#endif
-                                    laneGroup,
+            EncodeCompressedBoxNode(laneGroup,
                                     rootNodeIndex,
                                     scratchNodesScratchOffset,
                                     scratchWideNodesScratchOffset,

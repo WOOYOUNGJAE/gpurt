@@ -783,7 +783,7 @@ static QuantizedBVH8BoxNode FetchQuantizedBVH8BoxNode(
 }
 
 //=====================================================================================================================
-static QuantizedBVH8BoxNode2 FetchQuantizedBVH8BoxNode2(
+static QuantizedBVH8BoxNode FetchQuantizedBVH8BoxNode2(
     in GpuVirtualAddress bvhAddress,
     in uint              nodePointer)
 
@@ -801,14 +801,14 @@ static QuantizedBVH8BoxNode2 FetchQuantizedBVH8BoxNode2(
     d6 = LoadDwordAtAddrx4(nodeAddr + 0x60);
     d7 = LoadDwordAtAddrx4(nodeAddr + 0x70);
 
-    QuantizedBVH8BoxNode2 result;
+    QuantizedBVH8BoxNode result;
 
     result.internalNodeBaseOffset                     = d0.x;
     result.leafNodeBaseOffset                         = d0.y;
     result.parentPointer                              = d0.z;
     result.origin                                     = float3(asfloat(d0.w), asfloat(d1.xy));
     result.exponentsChildIndexAndChildCount           = d1.z;
-    result.leaderMaskAndObbMatrixIndex                = d1.w & 0xFFFF;
+    result.obbMatrixIndex                             = d1.w & 0xFFFF;
     result.childInfos[0].minXMinYAndCullingFlags      = d2.x;
     result.childInfos[0].minZMaxXAndInstanceMask      = d2.y;
     result.childInfos[0].maxYMaxZNodeTypeAndNodeRange = d2.z;
@@ -965,21 +965,23 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
     const uint nodeType = (nodePtr & 7);
 
 
-    if (nodeType == NODE_TYPE_BOX_QUANTIZED_BVH8_2 || nodeType == 5) // bvh8_box_128
+    if (nodeType == NODE_TYPE_BOX_QUANTIZED_BVH8) // bvh8_box_128
     {
         Float32BoxNode node0 = (Float32BoxNode)0;
         Float32BoxNode node1 = (Float32BoxNode)0;
         uint parentPointer;
         uint obbMatrixIndex;
-
-        if (nodeType == NODE_TYPE_BOX_QUANTIZED_BVH8_2)
-        {
-            // TODO;
-            QuantizedBVH8BoxNode2 node = FetchQuantizedBVH8BoxNode2(ExtractInstanceAddr(baseNodePtr), nodePtr);
-            node.Decode(node0, node1, parentPointer);
-            obbMatrixIndex = INVALID_OBB;
-        }
-
+        uint leaderMask;
+        
+#if MERGE_BOX_NODES_RTIP3_1
+        QuantizedBVH8BoxNode node = FetchQuantizedBVH8BoxNode2(ExtractInstanceAddr(baseNodePtr), nodePtr);
+        node.Decode2(node0, node1, parentPointer, leaderMask);
+        obbMatrixIndex = INVALID_OBB;
+#else
+        QuantizedBVH8BoxNode node = FetchQuantizedBVH8BoxNode(ExtractInstanceAddr(baseNodePtr), nodePtr);
+        node.Decode(node0, node1, parentPointer);
+        obbMatrixIndex = node.obbMatrixIndex;
+#endif
         PerformEarlyBoxCulling(node0, baseNodePtr);
         PerformEarlyBoxCulling(node1, baseNodePtr);
 
@@ -1010,16 +1012,6 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
                           true,
                           result.slot0,
                           result.slot1);
-        // mergeMask 
-        // result.slot0.x = (mergeMask & (1u << 0)) ? result.slot0.x : 0;
-        // result.slot0.y = (mergeMask & (1u << 1)) ? result.slot0.y : 0;
-        // result.slot0.z = (mergeMask & (1u << 2)) ? result.slot0.z : 0;
-        // result.slot0.w = (mergeMask & (1u << 3)) ? result.slot0.w : 0;
-
-        // result.slot1.x = (mergeMask & (1u << 4)) ? result.slot1.x : 0;
-        // result.slot1.y = (mergeMask & (1u << 5)) ? result.slot1.y : 0;
-        // result.slot1.z = (mergeMask & (1u << 6)) ? result.slot1.z : 0;
-        // result.slot1.w = (mergeMask & (1u << 7)) ? result.slot1.w : 0;
     }
     else if (nodeType == 6) // Instance node
     {
