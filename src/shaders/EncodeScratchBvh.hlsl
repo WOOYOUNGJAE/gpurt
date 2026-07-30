@@ -1000,12 +1000,22 @@ static void EncodeCompressedBoxNode(
     const uint numLeaderBoxChildren = countbits(leaderBoxMask);
     const uint numMergedBoxChildren = countbits(mergedBoxMask);
 
+    uint boxChildCompactedIndexInParent = INVALID_IDX;
+    if (isLeaderBoxChild)
+    {
+        boxChildCompactedIndexInParent = laneGroup.ExclusivePrefixSumBool(true);
+    }
+
     // Write leader box mask to parent node
     if (laneGroup.IsFirstLane())
     {
+        // ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.scratchWideNodeCounter, numMergedBoxChildren);
+
         parentWideNodePackedFlags = bitFieldInsert(parentWideNodePackedFlags, 9, 8, leaderBoxMask & bits(8));
         WriteScratchWideNodeData(scratchWideNodesScratchOffset, parentWideScratchNodeIndex, SCRATCH_WIDE_NODE_FLAGS_OFFSET, parentWideNodePackedFlags);
     }
+
+    // numBoxChildren = numLeaderBoxChildren;
 
 #endif // MERGE_BOX_NODES_RTIP3_1
 
@@ -1019,7 +1029,7 @@ static void EncodeCompressedBoxNode(
             const uint stackPtrOffset = ShaderConstants.offsets.qbvhGlobalStackPtrs;
             // ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_DST_PTR_OFFSET, numOrigianlBoxChildren + numInlinePrimStructs);
             
-            ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_DST_PTR_OFFSET, numOrigianlBoxChildren + numInlinePrimStructs, dstStackIdx);
+            ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_DST_PTR_OFFSET, numLeaderBoxChildren + numInlinePrimStructs, dstStackIdx);
         }
     }
 
@@ -1039,14 +1049,12 @@ static void EncodeCompressedBoxNode(
 
     if (isValidChild)
     {
-        if (childIsBox)
+        if (isLeaderBoxChild)
         {
-            // GPU_ASSERT(laneGroup.laneIndex < numBoxChildren);
             GPU_ASSERT(childWideScratchIndex != INVALID_IDX);
-            uint childStackIdx = dstStackIdx + boxOrLeafChildIndex;
-            // uint childStackIdx = childWideScratchIndex;
+            uint childStackIdx = dstStackIdx + boxChildCompactedIndexInParent;
             // DstIndex and LocalIndex
-            uint packedDstNodeIdx = PackStackDstNodeIdx(baseDstBoxIdx + boxOrLeafChildIndex, boxOrLeafChildIndex);
+            uint packedDstNodeIdx = PackStackDstNodeIdx(baseDstBoxIdx + boxChildCompactedIndexInParent, boxChildCompactedIndexInParent);
 
             // Regular operation for other threads with isBox set
             ScratchGlobal.Store2(ShaderConstants.offsets.qbvhGlobalStack + (childStackIdx * sizeof(uint2)),
@@ -1099,7 +1107,6 @@ static void EncodeCompressedBoxNode(
 
         if ((Settings.topLevelBuild == false) && (EnableLeafCompressionPass() == false))
         {
-            GPU_DPF("(EnableLeafCompressionPass() == false)");
             basePrimStructIdx = IncrementAccelStructHeaderField(ACCEL_STRUCT_HEADER_NUM_LEAF_NODES_OFFSET, numLeafChildren);
         }
     }
@@ -1130,10 +1137,12 @@ static void EncodeCompressedBoxNode(
         const uint nodeType        = childIsLeaf ? (Settings.topLevelBuild ?
                                                     NODE_TYPE_USER_NODE_INSTANCE : NODE_TYPE_TRIANGLE_0) :
                                                     NODE_TYPE_BOX_QUANTIZED_BVH8;
-        const uint primRangeLength = childIsLeaf ? (EnableLeafCompressionPass() ? 0 : 1) : 1;
+        const uint primRangeLength = childIsLeaf ? (EnableLeafCompressionPass() ? 0 : 1) :
+                                                   (isLeaderBoxChild ? 1 : 0);
         const uint baseNodeOffset  = childIsLeaf ? baseLeafNodeOffset : baseBoxNodeOffset;
         const uint offset          = childIsLeaf ? boxOrLeafChildIndex + numBoxChildren : boxOrLeafChildIndex;
-        const uint childNodeOffset = baseNodeOffset + (boxOrLeafChildIndex * QBVH8::NodeSizeInBytes);
+        const uint childNodeOffset = baseNodeOffset + 
+                (childIsLeaf ? boxOrLeafChildIndex : boxChildCompactedIndexInParent) * QBVH8::NodeSizeInBytes;
 
         BoundingBox childBbox;
         childScratchNode = FetchScratchNode(scratchNodesScratchOffset, childScratchNodeIndex);
@@ -1152,11 +1161,11 @@ static void EncodeCompressedBoxNode(
                                                        numPrimRefs);
         QBVH8::WritePackedChildInfo(currNodeOffset, offset, childInfo);
 
-        if (childIsBox)
+        if (isLeaderBoxChild)
         {
             QBVH8::WriteParentPointer(childNodeOffset, currNodePtr);
         }
-        else //isLeaf
+        else if (childIsLeaf)
         {
             // Process and compress leaf children
             if (EnableLeafCompressionPass() == false)
@@ -1412,11 +1421,10 @@ void EncodeScratchBvh(
     END_TASK(RoundUpQuotient(numScratchWideNodes, BUILD_THREADGROUP_SIZE));
 
     const uint numThreads = numScratchWideNodes * 8;
-    // if (globalId == 0) GPU_DPF("numScratchWideNodes: %d", numScratchWideNodes);
     BEGIN_TASK(RoundUpQuotient(numThreads, BUILD_THREADGROUP_SIZE));
     Gfx12::EncodeScratchBvhImpl(globalId, localId, numActivePrims, numScratchWideNodes);
     END_TASK(RoundUpQuotient(numThreads, BUILD_THREADGROUP_SIZE));
-    if (globalId == 0) GPU_DPF("EncodeScratchBvhImpl Done");
+
     BEGIN_TASK(1);
 
     PostHwBvhBuild(localId, numActivePrims);

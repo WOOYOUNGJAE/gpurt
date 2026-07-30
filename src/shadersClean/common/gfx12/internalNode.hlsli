@@ -664,9 +664,9 @@ inline void QuantizedBVH8BoxNode::Decode2(
             if (childInfos[i].NodeType() == NODE_TYPE_BOX_QUANTIZED_BVH8_2)
             {
 #if MERGE_BOX_NODES_RTIP3_1
-                if (leaderMask == 0)
+                if (leaderMask == 0 || leaderMask == 0xFF)
                 {
-                    childPointers[i] = internalOffset; // NODE_TYPE_BOX_QUANTIZED_BVH8
+                    childPointers[i] = internalOffset;
                 }
                 else if ((leaderMask & (1u << i)) != 0)
                 {
@@ -678,7 +678,7 @@ inline void QuantizedBVH8BoxNode::Decode2(
                     childPointers[i] = prevInternal;
                 }
 #else
-                childPointers[i] = internalOffset; // NODE_TYPE_BOX_QUANTIZED_BVH8
+                childPointers[i] = internalOffset;
 #endif
                 internalOffset += (childInfos[i].NodeRangeLength() << 4);
             }
