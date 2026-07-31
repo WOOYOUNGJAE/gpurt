@@ -4565,7 +4565,7 @@ void BvhBuilder::CollapseScratchBvh()
     BindPipeline(InternalRayTracingCsType::CollapseScratchBvh);
 
     const uint32 nodeCount       = GetNumInternalNodeCount();
-    const uint32 numThreadGroups = GetNumPersistentThreadGroups(nodeCount, DefaultThreadGroupSize, 2U);
+    const uint32 numThreadGroups = GetNumPersistentThreadGroups(nodeCount, DefaultThreadGroupSize, 4U);
 
     BuildShaderRootConstants0 shaderConstants =
     {
@@ -4593,7 +4593,7 @@ void BvhBuilder::EncodeScratchBvh()
     BindPipeline(InternalRayTracingCsType::EncodeScratchBvh);
 
     const uint32 nodeCount       = GetNumInternalNodeCount();
-    const uint32 numThreadGroups = GetNumPersistentThreadGroups(nodeCount, DefaultThreadGroupSize, 2U);
+    const uint32 numThreadGroups = GetNumPersistentThreadGroups(nodeCount, DefaultThreadGroupSize, 4U);
 
     BuildShaderRootConstants0 shaderConstants =
     {
