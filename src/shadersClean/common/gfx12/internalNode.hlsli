@@ -663,7 +663,7 @@ inline void QuantizedBVH8BoxNode::Decode2(
             // 128-byte nodes the box points to.
             if (childInfos[i].NodeType() == NODE_TYPE_BOX_QUANTIZED_BVH8_2)
             {
-#if MERGE_BOX_NODES_RTIP3_1
+#if (MERGE_BOX_NODES_FLAG_RTIP3_1)
                 if (leaderMask == 0 || leaderMask == 0xFF)
                 {
                     childPointers[i] = internalOffset;

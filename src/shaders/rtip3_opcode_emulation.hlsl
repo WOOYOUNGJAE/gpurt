@@ -973,7 +973,7 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
         uint obbMatrixIndex;
         uint leaderMask;
         
-#if MERGE_BOX_NODES_RTIP3_1
+#if MERGE_BOX_NODES_FLAG_RTIP3_1
         QuantizedBVH8BoxNode node = FetchQuantizedBVH8BoxNode2(ExtractInstanceAddr(baseNodePtr), nodePtr);
         node.Decode2(node0, node1, parentPointer, leaderMask);
         obbMatrixIndex = INVALID_OBB;
