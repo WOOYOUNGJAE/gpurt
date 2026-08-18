@@ -164,6 +164,10 @@ struct CompileTimeBuildSettings
     uint32 reserved14;
     uint32 reserved15;
 #endif
+#if SOGANG_EXPERIMENT
+    float  experimentFloat0;
+    float  experimentFloat1;
+#endif
 };
 
 #define BUILD_SETTINGS_DATA_TOP_LEVEL_BUILD_ID                        0
@@ -220,6 +224,10 @@ struct CompileTimeBuildSettings
 #if GPURT_BUILD_RTIP3_1
 #define BUILD_SETTINGS_DATA_REBRAID_OPEN_SA_FACTOR_ID                 49
 #define BUILD_SETTINGS_DATA_REBRAID_OPEN_MIN_PRIMS_ID                 50
+#endif
+#if SOGANG_EXPERIMENT
+#define BUILD_SETTINGS_DATA_EXPERIMENT_FLOAT0_ID                      51
+#define BUILD_SETTINGS_DATA_EXPERIMENT_FLOAT1_ID                      52
 #endif
 
 #ifdef __cplusplus

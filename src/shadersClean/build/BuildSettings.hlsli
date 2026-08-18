@@ -78,6 +78,10 @@
 [[vk::constant_id(BUILD_SETTINGS_DATA_REBRAID_OPEN_SA_FACTOR_ID)]]                 float rebraidOpenSAFactor          = 0;
 [[vk::constant_id(BUILD_SETTINGS_DATA_REBRAID_OPEN_MIN_PRIMS_ID)]]                 uint rebraidOpenMinPrims           = 0;
 #endif
+#if SOGANG_EXPERIMENT
+[[vk::constant_id(BUILD_SETTINGS_DATA_EXPERIMENT_FLOAT0_ID)]]                      float experimentFloat0             = 0;
+[[vk::constant_id(BUILD_SETTINGS_DATA_EXPERIMENT_FLOAT1_ID)]]                      float experimentFloat1             = 0;
+#endif
 
 static const CompileTimeBuildSettings Settings = {
     topLevelBuild,
@@ -151,6 +155,10 @@ static const CompileTimeBuildSettings Settings = {
 #else
     0,
     0,
+#endif
+#if SOGANG_EXPERIMENT
+    experimentFloat0,
+    experimentFloat1
 #endif
 };
 

@@ -68,6 +68,12 @@ if (GPURT_ENABLE_GPU_DEBUG)
     gpurt_add_compile_definitions(GPURT_ENABLE_GPU_DEBUG=1)
 endif()
 
+option(SOGANG_EXPERIMENT "Enable SOGANG_EXPERIMENT" OFF)
+
+if (SOGANG_EXPERIMENT)
+    gpurt_add_compile_definitions(SOGANG_EXPERIMENT=1)
+endif()
+
 # Force client to specify developer mode
 if (NOT DEFINED GPURT_DEVELOPER_MODE)
     message(FATAL_ERROR "Client must specify developer mode")
