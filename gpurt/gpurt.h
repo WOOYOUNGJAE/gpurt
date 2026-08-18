@@ -946,6 +946,10 @@ struct DeviceSettings
 #if GPURT_DEVELOPER
     RgpMarkerGranularityFlags   rgpMarkerGranularityFlags;
 #endif
+#if SOGANG_EXPERIMENT
+    float                       experimentFloat0;
+    float                       experimentFloat1;
+#endif
 };
 
 // Describes a postbuild info write request from some acceleration structures to some location.

@@ -2964,6 +2964,10 @@ void BvhBuilder::InitBuildSettings()
     m_buildSettings.sceneBoundsCalculationType = static_cast<uint32>(m_buildConfig.sceneCalcType);
 
     m_buildSettings.cullIllegalInstances = m_deviceSettings.cullIllegalInstances;
+#if SOGANG_EXPERIMENT
+    m_buildSettings.experimentFloat0 = m_deviceSettings.experimentFloat0;
+    m_buildSettings.experimentFloat1 = m_deviceSettings.experimentFloat1;
+#endif
 
     m_buildSettingsHash = m_backend.HashBuildSettings(m_buildSettings);
 

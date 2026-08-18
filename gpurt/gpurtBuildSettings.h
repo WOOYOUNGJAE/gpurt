@@ -165,6 +165,10 @@ struct CompileTimeBuildSettings
     uint32 reserved15;
 #endif
     uint32 wideNodeMergingFlags;
+#if SOGANG_EXPERIMENT
+    float  experimentFloat0;
+    float  experimentFloat1;
+#endif
 };
 
 #define BUILD_SETTINGS_DATA_TOP_LEVEL_BUILD_ID                        0
@@ -223,6 +227,10 @@ struct CompileTimeBuildSettings
 #define BUILD_SETTINGS_DATA_REBRAID_OPEN_MIN_PRIMS_ID                 50
 #endif
 #define BUILD_SETTINGS_DATA_WIDE_NODE_MERGING_FLAGS_ID                51
+#if SOGANG_EXPERIMENT
+#define BUILD_SETTINGS_DATA_EXPERIMENT_FLOAT0_ID                      (BUILD_SETTINGS_DATA_WIDE_NODE_MERGING_FLAGS_ID + 1)
+#define BUILD_SETTINGS_DATA_EXPERIMENT_FLOAT1_ID                      (BUILD_SETTINGS_DATA_WIDE_NODE_MERGING_FLAGS_ID + 2)
+#endif
 
 #ifdef __cplusplus
 } // namespace GpuRt
