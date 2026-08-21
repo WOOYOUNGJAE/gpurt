@@ -35,7 +35,7 @@
 #define _COMMON_HLSL
 
 // 0: Disable, 1: Enable without compaction, 2: Enable with compaction
-#define MERGE_BOX_NODES_FLAG_RTIP3_1 1
+#define MERGE_BOX_NODES_FLAG_RTIP3_1 2
 
 #include "InstanceDesc.hlsli"
 #include "../../../gpurt/gpurtAccelStruct.h"

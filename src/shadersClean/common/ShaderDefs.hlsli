@@ -85,7 +85,6 @@ enum PrimitiveType : uint
 #define NODE_TYPE_BOX_QUANTIZED_BVH8   5
 #endif
 #endif
-#define NODE_TYPE_BOX_QUANTIZED_BVH8_2 5
 #define NODE_TYPE_BOX_FLOAT32          5
 #define NODE_TYPE_USER_NODE_INSTANCE   6
 // From the HW IP 2.0 spec: '7: User Node 1 (processed as a Procedural Node for culling)'

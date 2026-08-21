@@ -147,19 +147,20 @@ static void IntersectNodeBvh8(
     in uint                          box_grow_ulp,
     in uint                          box_sort_heuristic,
     in bool                          sort_triangles_first,
+    in bool                          deduplicate,
     out_param(uint4)                 result0,
     out_param(uint4)                 result1)
 {
     // Box nodes consist of the bounds of eight different axis aligned bounding boxes
-    uint child0, child1, child2, child3, child4, child5, child6, child7;
-    child0 = node0.child0;
-    child1 = node0.child1;
-    child2 = node0.child2;
-    child3 = node0.child3;
-    child4 = node1.child0;
-    child5 = node1.child1;
-    child6 = node1.child2;
-    child7 = node1.child3;
+    uint children[8];
+    children[0] = node0.child0;
+    children[1] = node0.child1;
+    children[2] = node0.child2;
+    children[3] = node0.child3;
+    children[4] = node1.child0;
+    children[5] = node1.child1;
+    children[6] = node1.child2;
+    children[7] = node1.child3;
 
     float3 pmin0, pmin1, pmin2, pmin3, pmin4, pmin5, pmin6, pmin7, pmax0, pmax1, pmax2, pmax3, pmax4, pmax5, pmax6, pmax7;
     pmin0 = node0.bbox0_min;
@@ -191,14 +192,16 @@ static void IntersectNodeBvh8(
 
     // Setup default sorting key to handle box_sort_heuristic == 0(closest child)
     // and box_sort_heuristic == 3 (undefined sorting order))
-    float sort_key0 = s0.x;
-    float sort_key1 = s1.x;
-    float sort_key2 = s2.x;
-    float sort_key3 = s3.x;
-    float sort_key4 = s4.x;
-    float sort_key5 = s5.x;
-    float sort_key6 = s6.x;
-    float sort_key7 = s7.x;
+    float sort_keys[8];
+
+    sort_keys[0] = s0.x;
+    sort_keys[1] = s1.x;
+    sort_keys[2] = s2.x;
+    sort_keys[3] = s3.x;
+    sort_keys[4] = s4.x;
+    sort_keys[5] = s5.x;
+    sort_keys[6] = s6.x;
+    sort_keys[7] = s7.x;
 
     // Setup box sort keys for largest interval first traversal.
     // Note: this computation causes the sort keys to be the negative size of the
@@ -207,14 +210,14 @@ static void IntersectNodeBvh8(
     // interval to the smallest sized interval in this mode.
     if (box_sort_heuristic == BoxSortHeuristic::Largest) // largest first
     {
-        sort_key0 = s0.x-s0.y; //min_t0-max_t0
-        sort_key1 = s1.x-s1.y; //min_t1-max_t1
-        sort_key2 = s2.x-s2.y; //min_t2-max_t2
-        sort_key3 = s3.x-s3.y; //min_t3-max_t3
-        sort_key4 = s4.x-s4.y; //min_t4-max_t4
-        sort_key5 = s5.x-s5.y; //min_t5-max_t5
-        sort_key6 = s6.x-s6.y; //min_t6-max_t6
-        sort_key7 = s7.x-s7.y; //min_t7-max_t7
+        sort_keys[0] = s0.x-s0.y; //min_t0-max_t0
+        sort_keys[1] = s1.x-s1.y; //min_t1-max_t1
+        sort_keys[2] = s2.x-s2.y; //min_t2-max_t2
+        sort_keys[3] = s3.x-s3.y; //min_t3-max_t3
+        sort_keys[4] = s4.x-s4.y; //min_t4-max_t4
+        sort_keys[5] = s5.x-s5.y; //min_t5-max_t5
+        sort_keys[6] = s6.x-s6.y; //min_t6-max_t6
+        sort_keys[7] = s7.x-s7.y; //min_t7-max_t7
     }
     // Setup the box sort keys for the closest midpoint.
     // Note: the full computation of midpoint is (min_of_intervals+max_of_intervals)/2,
@@ -222,14 +225,14 @@ static void IntersectNodeBvh8(
     // Also, sort keys may be negative if the midpoint occurs behind the ray origin.
     else if (box_sort_heuristic == BoxSortHeuristic::MidPoint) // closest mid-point
     {
-        sort_key0 = s0.z+s0.w; //min_of_intervals_t0+max_of_intervals_t0
-        sort_key1 = s1.z+s1.w; //min_of_intervals_t1+max_of_intervals_t1
-        sort_key2 = s2.z+s2.w; //min_of_intervals_t2+max_of_intervals_t2
-        sort_key3 = s3.z+s3.w; //min_of_intervals_t3+max_of_intervals_t3
-        sort_key4 = s4.z+s4.w; //min_of_intervals_t4+max_of_intervals_t4
-        sort_key5 = s5.z+s5.w; //min_of_intervals_t5+max_of_intervals_t5
-        sort_key6 = s6.z+s6.w; //min_of_intervals_t6+max_of_intervals_t6
-        sort_key7 = s7.z+s7.w; //min_of_intervals_t7+max_of_intervals_t7
+        sort_keys[0] = s0.z+s0.w; //min_of_intervals_t0+max_of_intervals_t0
+        sort_keys[1] = s1.z+s1.w; //min_of_intervals_t1+max_of_intervals_t1
+        sort_keys[2] = s2.z+s2.w; //min_of_intervals_t2+max_of_intervals_t2
+        sort_keys[3] = s3.z+s3.w; //min_of_intervals_t3+max_of_intervals_t3
+        sort_keys[4] = s4.z+s4.w; //min_of_intervals_t4+max_of_intervals_t4
+        sort_keys[5] = s5.z+s5.w; //min_of_intervals_t5+max_of_intervals_t5
+        sort_keys[6] = s6.z+s6.w; //min_of_intervals_t6+max_of_intervals_t6
+        sort_keys[7] = s7.z+s7.w; //min_of_intervals_t7+max_of_intervals_t7
     }
 
     // Mark out the nodes that didn't hit by setting them to the
@@ -247,28 +250,53 @@ static void IntersectNodeBvh8(
     const float eps = 5.960464478e-8f; // 2^-24;
 
     uint traverse[8];
-    traverse[0] = (s0.x <= (s0.y * (1 + box_grow_ulp * eps))) ? child0 : INVALID_NODE;
-    traverse[1] = (s1.x <= (s1.y * (1 + box_grow_ulp * eps))) ? child1 : INVALID_NODE;
-    traverse[2] = (s2.x <= (s2.y * (1 + box_grow_ulp * eps))) ? child2 : INVALID_NODE;
-    traverse[3] = (s3.x <= (s3.y * (1 + box_grow_ulp * eps))) ? child3 : INVALID_NODE;
-    traverse[4] = (s4.x <= (s4.y * (1 + box_grow_ulp * eps))) ? child4 : INVALID_NODE;
-    traverse[5] = (s5.x <= (s5.y * (1 + box_grow_ulp * eps))) ? child5 : INVALID_NODE;
-    traverse[6] = (s6.x <= (s6.y * (1 + box_grow_ulp * eps))) ? child6 : INVALID_NODE;
-    traverse[7] = (s7.x <= (s7.y * (1 + box_grow_ulp * eps))) ? child7 : INVALID_NODE;
+    traverse[0] = (s0.x <= (s0.y * (1 + box_grow_ulp * eps))) ? children[0] : INVALID_NODE;
+    traverse[1] = (s1.x <= (s1.y * (1 + box_grow_ulp * eps))) ? children[1] : INVALID_NODE;
+    traverse[2] = (s2.x <= (s2.y * (1 + box_grow_ulp * eps))) ? children[2] : INVALID_NODE;
+    traverse[3] = (s3.x <= (s3.y * (1 + box_grow_ulp * eps))) ? children[3] : INVALID_NODE;
+    traverse[4] = (s4.x <= (s4.y * (1 + box_grow_ulp * eps))) ? children[4] : INVALID_NODE;
+    traverse[5] = (s5.x <= (s5.y * (1 + box_grow_ulp * eps))) ? children[5] : INVALID_NODE;
+    traverse[6] = (s6.x <= (s6.y * (1 + box_grow_ulp * eps))) ? children[6] : INVALID_NODE;
+    traverse[7] = (s7.x <= (s7.y * (1 + box_grow_ulp * eps))) ? children[7] : INVALID_NODE;
 
-    // De-duplicate child reuse nodes. All child reuse nodes are expected to be in contiguous slots
-    uint previous = traverse[0];
+#define DEDUPLICATE_COMPLETE 0
+#if DEDUPLICATE_WITH_DISTANCE
+    // De-duplicate merged nodes
+    uint prev = 0;
     for (uint i = 1; i < 8; ++i)
     {
-        if (traverse[i] == previous)
+        if (traverse[i] != INVALID_NODE)
+        {
+            if (traverse[i] == traverse[prev])
+            {
+                sort_keys[prev] = min(sort_keys[prev], sort_keys[i]);
+                traverse[i]     = INVALID_NODE;
+            }
+            else
+            {
+                prev = i;
+            }
+        }
+    }
+#else // DEFAULT
+    // default De-duplicate for child reuse nodes.
+    uint prev = traverse[0];
+    for (uint i = 1; i < 8; ++i)
+    {
+#if DEDUPLICATE_COMPLETE
+        if (deduplicate && traverse[i] == INVALID_NODE)
+            continue;
+#endif
+        if (traverse[i] == prev)
         {
             traverse[i] = INVALID_NODE;
         }
         else
         {
-            previous = traverse[i];
+            prev = traverse[i];
         }
     }
+#endif
 
     // 8-item sorting network to optimize BVH traversal using the
     // distance heuristic
@@ -313,36 +341,65 @@ static void IntersectNodeBvh8(
     if (box_sorting_enabled)
     {
         // Stage 1
-        Sort(ext_sort_key0, ext_sort_key2, traverse[0], traverse[2], sort_key0, sort_key2);
-        Sort(ext_sort_key1, ext_sort_key3, traverse[1], traverse[3], sort_key1, sort_key3);
-        Sort(ext_sort_key4, ext_sort_key6, traverse[4], traverse[6], sort_key4, sort_key6);
-        Sort(ext_sort_key5, ext_sort_key7, traverse[5], traverse[7], sort_key5, sort_key7);
+        Sort(ext_sort_key0, ext_sort_key2, traverse[0], traverse[2], sort_keys[0], sort_keys[2]);
+        Sort(ext_sort_key1, ext_sort_key3, traverse[1], traverse[3], sort_keys[1], sort_keys[3]);
+        Sort(ext_sort_key4, ext_sort_key6, traverse[4], traverse[6], sort_keys[4], sort_keys[6]);
+        Sort(ext_sort_key5, ext_sort_key7, traverse[5], traverse[7], sort_keys[5], sort_keys[7]);
 
         // Stage 2
-        Sort(ext_sort_key0, ext_sort_key1, traverse[0], traverse[1], sort_key0, sort_key1);
-        Sort(ext_sort_key2, ext_sort_key3, traverse[2], traverse[3], sort_key2, sort_key3);
-        Sort(ext_sort_key4, ext_sort_key5, traverse[4], traverse[5], sort_key4, sort_key5);
-        Sort(ext_sort_key6, ext_sort_key7, traverse[6], traverse[7], sort_key6, sort_key7);
+        Sort(ext_sort_key0, ext_sort_key1, traverse[0], traverse[1], sort_keys[0], sort_keys[1]);
+        Sort(ext_sort_key2, ext_sort_key3, traverse[2], traverse[3], sort_keys[2], sort_keys[3]);
+        Sort(ext_sort_key4, ext_sort_key5, traverse[4], traverse[5], sort_keys[4], sort_keys[5]);
+        Sort(ext_sort_key6, ext_sort_key7, traverse[6], traverse[7], sort_keys[6], sort_keys[7]);
 
         // Stage 3
-        Sort(ext_sort_key1, ext_sort_key2, traverse[1], traverse[2], sort_key1, sort_key2);
-        Sort(ext_sort_key5, ext_sort_key6, traverse[5], traverse[6], sort_key5, sort_key6);
+        Sort(ext_sort_key1, ext_sort_key2, traverse[1], traverse[2], sort_keys[1], sort_keys[2]);
+        Sort(ext_sort_key5, ext_sort_key6, traverse[5], traverse[6], sort_keys[5], sort_keys[6]);
 
         // Stage 4
-        Sort(ext_sort_key0, ext_sort_key4, traverse[0], traverse[4], sort_key0, sort_key4);
-        Sort(ext_sort_key1, ext_sort_key5, traverse[1], traverse[5], sort_key1, sort_key5);
-        Sort(ext_sort_key2, ext_sort_key6, traverse[2], traverse[6], sort_key2, sort_key6);
-        Sort(ext_sort_key3, ext_sort_key7, traverse[3], traverse[7], sort_key3, sort_key7);
+        Sort(ext_sort_key0, ext_sort_key4, traverse[0], traverse[4], sort_keys[0], sort_keys[4]);
+        Sort(ext_sort_key1, ext_sort_key5, traverse[1], traverse[5], sort_keys[1], sort_keys[5]);
+        Sort(ext_sort_key2, ext_sort_key6, traverse[2], traverse[6], sort_keys[2], sort_keys[6]);
+        Sort(ext_sort_key3, ext_sort_key7, traverse[3], traverse[7], sort_keys[3], sort_keys[7]);
 
         // Stage 5
-        Sort(ext_sort_key2, ext_sort_key4, traverse[2], traverse[4], sort_key2, sort_key4);
-        Sort(ext_sort_key3, ext_sort_key5, traverse[3], traverse[5], sort_key3, sort_key5);
+        Sort(ext_sort_key2, ext_sort_key4, traverse[2], traverse[4], sort_keys[2], sort_keys[4]);
+        Sort(ext_sort_key3, ext_sort_key5, traverse[3], traverse[5], sort_keys[3], sort_keys[5]);
 
         // Stage 6
-        Sort(ext_sort_key1, ext_sort_key2, traverse[1], traverse[2], sort_key1, sort_key2);
-        Sort(ext_sort_key3, ext_sort_key4, traverse[3], traverse[4], sort_key3, sort_key4);
-        Sort(ext_sort_key5, ext_sort_key6, traverse[5], traverse[6], sort_key5, sort_key6);
+        Sort(ext_sort_key1, ext_sort_key2, traverse[1], traverse[2], sort_keys[1], sort_keys[2]);
+        Sort(ext_sort_key3, ext_sort_key4, traverse[3], traverse[4], sort_keys[3], sort_keys[4]);
+        Sort(ext_sort_key5, ext_sort_key6, traverse[5], traverse[6], sort_keys[5], sort_keys[6]);
     }
+
+#if 0 // Temp code for deduplication testing. ignore this.
+    for (int ii = 0; ii < 8; ++ii)
+    {
+        if (traverse[ii] == INVALID_NODE || NODE_TYPE(traverse[ii]) != NODE_TYPE_BOX_QUANTIZED_BVH8)
+            continue;
+
+        for (int j = ii + 1; j < 8; ++j)
+        {
+            if (traverse[j] == INVALID_NODE)
+                continue;
+
+            if (traverse[ii] == traverse[j])
+            {
+                for (uint k = 0; k < 8; ++k)
+                {
+                    traverse[k] = INVALID_NODE;
+                }
+            }
+        }
+    }
+    // if (deduplicate)
+    // {
+    //     for (uint k = 0; k < 8; ++k)
+    //     {
+    //         traverse[k] = INVALID_NODE;
+    //     }
+    // }
+#endif
 
     result0 = uint4(traverse[0], traverse[1], traverse[2], traverse[3]);
     result1 = uint4(traverse[4], traverse[5], traverse[6], traverse[7]);
@@ -560,6 +617,7 @@ static void IntersectHardwareInstanceNode(
                           BOX_EXPANSION_DEFAULT_AMOUNT,
                           boxSortHeuristic,
                           true,
+                          false,
                           result0,
                           result1);
 
@@ -752,63 +810,12 @@ static QuantizedBVH8BoxNode FetchQuantizedBVH8BoxNode(
     result.leafNodeBaseOffset                         = d0.y;
     result.parentPointer                              = d0.z;
     result.origin                                     = float3(asfloat(d0.w), asfloat(d1.xy));
-    result.exponentsChildIndexAndChildCount           = d1.z;
-    result.obbMatrixIndex                             = d1.w & 0x7F;
-    result.childInfos[0].minXMinYAndCullingFlags      = d2.x;
-    result.childInfos[0].minZMaxXAndInstanceMask      = d2.y;
-    result.childInfos[0].maxYMaxZNodeTypeAndNodeRange = d2.z;
-    result.childInfos[1].minXMinYAndCullingFlags      = d2.w;
-    result.childInfos[1].minZMaxXAndInstanceMask      = d3.x;
-    result.childInfos[1].maxYMaxZNodeTypeAndNodeRange = d3.y;
-    result.childInfos[2].minXMinYAndCullingFlags      = d3.z;
-    result.childInfos[2].minZMaxXAndInstanceMask      = d3.w;
-    result.childInfos[2].maxYMaxZNodeTypeAndNodeRange = d4.x;
-    result.childInfos[3].minXMinYAndCullingFlags      = d4.y;
-    result.childInfos[3].minZMaxXAndInstanceMask      = d4.z;
-    result.childInfos[3].maxYMaxZNodeTypeAndNodeRange = d4.w;
-    result.childInfos[4].minXMinYAndCullingFlags      = d5.x;
-    result.childInfos[4].minZMaxXAndInstanceMask      = d5.y;
-    result.childInfos[4].maxYMaxZNodeTypeAndNodeRange = d5.z;
-    result.childInfos[5].minXMinYAndCullingFlags      = d5.w;
-    result.childInfos[5].minZMaxXAndInstanceMask      = d6.x;
-    result.childInfos[5].maxYMaxZNodeTypeAndNodeRange = d6.y;
-    result.childInfos[6].minXMinYAndCullingFlags      = d6.z;
-    result.childInfos[6].minZMaxXAndInstanceMask      = d6.w;
-    result.childInfos[6].maxYMaxZNodeTypeAndNodeRange = d7.x;
-    result.childInfos[7].minXMinYAndCullingFlags      = d7.y;
-    result.childInfos[7].minZMaxXAndInstanceMask      = d7.z;
-    result.childInfos[7].maxYMaxZNodeTypeAndNodeRange = d7.w;
-
-    return result;
-}
-
-//=====================================================================================================================
-static QuantizedBVH8BoxNode FetchQuantizedBVH8BoxNode2(
-    in GpuVirtualAddress bvhAddress,
-    in uint              nodePointer)
-
-{
-    const uint byteOffset = ExtractNodePointerOffset(nodePointer);
-    const GpuVirtualAddress nodeAddr = bvhAddress + byteOffset;
-
-    uint4 d0, d1, d2, d3, d4, d5, d6, d7;
-    d0 = LoadDwordAtAddrx4(nodeAddr);
-    d1 = LoadDwordAtAddrx4(nodeAddr + 0x10);
-    d2 = LoadDwordAtAddrx4(nodeAddr + 0x20);
-    d3 = LoadDwordAtAddrx4(nodeAddr + 0x30);
-    d4 = LoadDwordAtAddrx4(nodeAddr + 0x40);
-    d5 = LoadDwordAtAddrx4(nodeAddr + 0x50);
-    d6 = LoadDwordAtAddrx4(nodeAddr + 0x60);
-    d7 = LoadDwordAtAddrx4(nodeAddr + 0x70);
-
-    QuantizedBVH8BoxNode result;
-
-    result.internalNodeBaseOffset                     = d0.x;
-    result.leafNodeBaseOffset                         = d0.y;
-    result.parentPointer                              = d0.z;
-    result.origin                                     = float3(asfloat(d0.w), asfloat(d1.xy));
-    result.exponentsChildIndexAndChildCount           = d1.z;
+    result.packedData                                 = d1.z;
+#if MERGE_BOX_NODES_FLAG_RTIP3_1
     result.obbMatrixIndex                             = d1.w & 0xFFFF;
+#else
+    result.obbMatrixIndex                             = d1.w & 0x7F;
+#endif
     result.childInfos[0].minXMinYAndCullingFlags      = d2.x;
     result.childInfos[0].minZMaxXAndInstanceMask      = d2.y;
     result.childInfos[0].maxYMaxZNodeTypeAndNodeRange = d2.z;
@@ -902,6 +909,7 @@ static DualIntersectResult image_bvh8_intersect_ray(
                           BOX_EXPANSION_DEFAULT_AMOUNT,
                           boxSortHeuristic,
                           true,
+                          false,
                           result.first,
                           result.second);
     }
@@ -924,6 +932,7 @@ static DualIntersectResult image_bvh8_intersect_ray(
                           BOX_EXPANSION_DEFAULT_AMOUNT,
                           boxSortHeuristic,
                           true,
+                          false,
                           result.first,
                           result.second);
     }
@@ -974,9 +983,10 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
         uint leaderMask;
         
 #if MERGE_BOX_NODES_FLAG_RTIP3_1
-        QuantizedBVH8BoxNode node = FetchQuantizedBVH8BoxNode2(ExtractInstanceAddr(baseNodePtr), nodePtr);
+        QuantizedBVH8BoxNode node = FetchQuantizedBVH8BoxNode(ExtractInstanceAddr(baseNodePtr), nodePtr);
         node.Decode2(node0, node1, parentPointer, leaderMask);
-        obbMatrixIndex = INVALID_OBB;
+        obbMatrixIndex = node.OBBMatrixIndex();
+        obbMatrixIndex = INVALID_OBB; // force disabled
 #else
         QuantizedBVH8BoxNode node = FetchQuantizedBVH8BoxNode(ExtractInstanceAddr(baseNodePtr), nodePtr);
         node.Decode(node0, node1, parentPointer);
@@ -1002,6 +1012,7 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
                          localRayDir);
         }
 
+        const bool deduplicateMerged = false;
         IntersectNodeBvh8(node0,
                           node1,
                           rayExtent,
@@ -1010,6 +1021,7 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
                           BOX_EXPANSION_DEFAULT_AMOUNT,
                           boxSortHeuristic,
                           true,
+                          deduplicateMerged,
                           result.slot0,
                           result.slot1);
     }

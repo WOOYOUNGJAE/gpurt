@@ -37,7 +37,7 @@ static const uint ObbDisabled = 0x7f;
 #define QUANTIZED_BVH8_NODE_OFFSET_LEAF_NODE_BASE_OFFSET          4 // offsetof(QuantizedBVH8BoxNode, leafNodeBaseOffset);
 #define QUANTIZED_BVH8_NODE_OFFSET_PARENT_POINTER                 8 // offsetof(QuantizedBVH8BoxNode, parentPointer);
 #define QUANTIZED_BVH8_NODE_OFFSET_ORIGIN                        12 // offsetof(QuantizedBVH8BoxNode, origin);
-#define QUANTIZED_BVH8_NODE_OFFSET_EXP_CHILD_IDX_AND_VALID_COUNT 24 // offsetof(QuantizedBVH8BoxNode, exponentsChildIndexAndChildCount);
+#define QUANTIZED_BVH8_NODE_OFFSET_EXP_CHILD_IDX_AND_VALID_COUNT 24 // offsetof(QuantizedBVH8BoxNode, packedData);
 #define QUANTIZED_BVH8_NODE_OFFSET_OBB_MATRIX_INDEX              28 // offsetof(QuantizedBVH8BoxNode, obbMatrixIndex);
 #define QUANTIZED_BVH8_NODE_OFFSET_CHILD_INFO_0                  32 // offsetof(QuantizedBVH8BoxNode, childInfos);
 #define QUANTIZED_BVH8_NODE_SIZE                                128
@@ -61,17 +61,19 @@ struct QuantizedBVH8BoxNode
     {
         struct
         {
-            uint32_t xExponent  : 8;
-            uint32_t yExponent  : 8;
-            uint32_t zExponent  : 8;
-            uint32_t childIndex : 4;
-            uint32_t childCount : 4;
+            uint32_t xExponent          : 8;
+            uint32_t yExponent          : 8;
+            uint32_t zExponent          : 8;
+            uint32_t disableBoxSort     : 1;
+            uint32_t childIndex         : 3;
+            uint32_t childCountMinusOne : 3;
+            uint32_t unused             : 1;
         };
-
+        uint32_t packedData;
         uint32_t exponentsChildIndexAndChildCount;
     };
 #else
-    uint32_t exponentsChildIndexAndChildCount;
+    uint32_t packedData;
 #endif
 
     uint32_t  obbMatrixIndex;
@@ -106,6 +108,7 @@ struct QuantizedBVH8BoxNode
     void SetOrigin(float3 originVal);
     uint3 Exponents();
     void SetExponents(uint3 exponents);
+    bool DisableBoxSort();
     uint IndexInParent();
     void SetIndexInParent(uint indexInParent);
     uint ValidChildCount();
@@ -178,7 +181,7 @@ inline void QuantizedBVH8BoxNode::Init()
     leafNodeBaseOffset = 0;
     parentPointer = INVALID_NODE;
     origin = float3(0, 0, 0);
-    exponentsChildIndexAndChildCount = 0;
+    packedData = 0;
     obbMatrixIndex = ObbDisabled;
 
     for (uint i = 0; i < 8; i++)
@@ -202,7 +205,11 @@ inline void QuantizedBVH8BoxNode::SetInternalNodeBaseOffset(uint internalNodeBas
 //=====================================================================================================================
 inline uint QuantizedBVH8BoxNode::OBBMatrixIndex()
 {
+#if MERGE_BOX_NODES_FLAG_RTIP3_1
+    return obbMatrixIndex & 0x7f;
+#else
     return obbMatrixIndex;
+#endif
 }
 
 //=====================================================================================================================
@@ -251,9 +258,9 @@ inline void QuantizedBVH8BoxNode::SetOrigin(float3 originVal)
 inline uint3 QuantizedBVH8BoxNode::Exponents()
 {
     uint3 exponents;
-    exponents.x = bitFieldExtract(exponentsChildIndexAndChildCount, 0, 8);
-    exponents.y = bitFieldExtract(exponentsChildIndexAndChildCount, 8, 8);
-    exponents.z = bitFieldExtract(exponentsChildIndexAndChildCount, 16, 8);
+    exponents.x = bitFieldExtract(packedData, 0, 8);
+    exponents.y = bitFieldExtract(packedData, 8, 8);
+    exponents.z = bitFieldExtract(packedData, 16, 8);
 
     return exponents;
 }
@@ -261,34 +268,45 @@ inline uint3 QuantizedBVH8BoxNode::Exponents()
 //=====================================================================================================================
 inline void QuantizedBVH8BoxNode::SetExponents(uint3 exponents)
 {
-    exponentsChildIndexAndChildCount = bitFieldInsert(exponentsChildIndexAndChildCount, 0, 8, exponents.x);
-    exponentsChildIndexAndChildCount = bitFieldInsert(exponentsChildIndexAndChildCount, 8, 8, exponents.y);
-    exponentsChildIndexAndChildCount = bitFieldInsert(exponentsChildIndexAndChildCount, 16, 8, exponents.z);
+    packedData = bitFieldInsert(packedData, 0, 8, exponents.x);
+    packedData = bitFieldInsert(packedData, 8, 8, exponents.y);
+    packedData = bitFieldInsert(packedData, 16, 8, exponents.z);
+}
+
+//=====================================================================================================================
+inline bool QuantizedBVH8BoxNode::DisableBoxSort()
+{
+#if MERGE_BOX_NODES_FLAG_RTIP3_1 & 0
+    // The box sort disabled bit indicates that merged-node de-duplication is enabled instead of the default de-duplication method.
+    // However, this approach is not used in practice, as the increased de-duplication branch factor can cause divergence, resulting in degraded performance.
+    return (bitFieldExtract(packedData, 24, 1) != 0);
+#endif
+    return false;
 }
 
 //=====================================================================================================================
 inline uint QuantizedBVH8BoxNode::IndexInParent()
 {
-    return bitFieldExtract(exponentsChildIndexAndChildCount, 25, 3);
+    return bitFieldExtract(packedData, 25, 3);
 }
 
 //=====================================================================================================================
 inline void QuantizedBVH8BoxNode::SetIndexInParent(uint indexInParent)
 {
     indexInParent = indexInParent & 0x7;
-    exponentsChildIndexAndChildCount = bitFieldInsert(exponentsChildIndexAndChildCount, 25, 3, indexInParent);
+    packedData = bitFieldInsert(packedData, 25, 3, indexInParent);
 }
 
 //=====================================================================================================================
 inline uint QuantizedBVH8BoxNode::ValidChildCount()
 {
-    return 1 + bitFieldExtract(exponentsChildIndexAndChildCount, 28, 3);
+    return 1 + bitFieldExtract(packedData, 28, 3);
 }
 
 //=====================================================================================================================
 inline void QuantizedBVH8BoxNode::SetValidChildCount(uint childCount)
 {
-    exponentsChildIndexAndChildCount = bitFieldInsert(exponentsChildIndexAndChildCount, 28, 3, (childCount - 1));
+    packedData = bitFieldInsert(packedData, 28, 3, (childCount - 1));
 }
 
 //=====================================================================================================================
@@ -626,7 +644,8 @@ inline void QuantizedBVH8BoxNode::Decode2(
     out_param(Float32BoxNode) f32BoxNode0,
     out_param(Float32BoxNode) f32BoxNode1,
     out_param(uint)           parentPointer,
-    out_param(uint)           leaderMask)
+    out_param(uint)           leaderMask
+)
 {
     BoundingBox aabbs[8];
     uint childPointers[8];
@@ -661,16 +680,12 @@ inline void QuantizedBVH8BoxNode::Decode2(
             // For primitive node children, the node type must be placed into the lower 4 bits.
             // The appropriate running offset must be incremented by the number of consecutive
             // 128-byte nodes the box points to.
-            if (childInfos[i].NodeType() == NODE_TYPE_BOX_QUANTIZED_BVH8_2)
+            if (childInfos[i].NodeType() == NODE_TYPE_BOX_QUANTIZED_BVH8)
             {
-#if (MERGE_BOX_NODES_FLAG_RTIP3_1)
-                if (leaderMask == 0 || leaderMask == 0xFF)
+#if MERGE_BOX_NODES_FLAG_RTIP3_1
+                childPointers[i] = internalOffset;
+                if (leaderMask == 0 || (leaderMask & (1u << i)) != 0)
                 {
-                    childPointers[i] = internalOffset;
-                }
-                else if ((leaderMask & (1u << i)) != 0)
-                {
-                    childPointers[i] = internalOffset;
                     prevInternal = childPointers[i];
                 }
                 else
