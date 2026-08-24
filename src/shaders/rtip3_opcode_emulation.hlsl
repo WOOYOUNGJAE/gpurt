@@ -811,7 +811,7 @@ static QuantizedBVH8BoxNode FetchQuantizedBVH8BoxNode(
     result.parentPointer                              = d0.z;
     result.origin                                     = float3(asfloat(d0.w), asfloat(d1.xy));
     result.packedData                                 = d1.z;
-#if MERGE_BOX_NODES_FLAG_RTIP3_1
+#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
     result.obbMatrixIndex                             = d1.w & 0xFFFF;
 #else
     result.obbMatrixIndex                             = d1.w & 0x7F;
@@ -982,13 +982,12 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
         uint obbMatrixIndex;
         uint leaderMask;
         
-#if MERGE_BOX_NODES_FLAG_RTIP3_1
         QuantizedBVH8BoxNode node = FetchQuantizedBVH8BoxNode(ExtractInstanceAddr(baseNodePtr), nodePtr);
+#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
         node.Decode2(node0, node1, parentPointer, leaderMask);
         obbMatrixIndex = node.OBBMatrixIndex();
         obbMatrixIndex = INVALID_OBB; // force disabled
 #else
-        QuantizedBVH8BoxNode node = FetchQuantizedBVH8BoxNode(ExtractInstanceAddr(baseNodePtr), nodePtr);
         node.Decode(node0, node1, parentPointer);
         obbMatrixIndex = node.obbMatrixIndex;
 #endif

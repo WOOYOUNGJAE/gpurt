@@ -496,8 +496,6 @@ static uint3 ComputePackedChildInfo(
     in float3        origin,
     in uint          numPrimRefs)
 {
-    const bool isLeafNode = IsLeafNode(childScratchNodeIdx, numPrimRefs);
-
     const uint instanceMask =
         ExtractScratchNodeInstanceMask(childScratchNodePackedFlags);
 
@@ -1239,7 +1237,7 @@ static void EncodeCompressedBoxNode(
         uint packedFlags = FetchScratchWideNodeData<uint>(scratchWideNodesScratchOffset, parentWideScratchNodeIndex, SCRATCH_WIDE_NODE_FLAGS_OFFSET);
         const uint childrenLeaderMask = bitFieldExtract(packedFlags, 9, 8);
         uint leaderMaskAndObbMatrixIndex = INVALID_OBB;
-        leaderMaskAndObbMatrixIndex = bitFieldInsert(leaderMaskAndObbMatrixIndex, 7, 8, childrenLeaderMask);
+        // leaderMaskAndObbMatrixIndex = bitFieldInsert(leaderMaskAndObbMatrixIndex, 7, 8, childrenLeaderMask);
         QBVH8::WriteObbMatrixIndex(currNodeOffset, leaderMaskAndObbMatrixIndex);
 
         if ((Settings.topLevelBuild == false) && (EnableLeafCompressionPass() == false))
@@ -1274,9 +1272,12 @@ static void EncodeCompressedBoxNode(
         const uint nodeType        = childIsLeaf ? (Settings.topLevelBuild ?
                                                     NODE_TYPE_USER_NODE_INSTANCE : NODE_TYPE_TRIANGLE_0) :
                                                     NODE_TYPE_BOX_QUANTIZED_BVH8;
-        const uint primRangeLength = childIsLeaf ? (EnableLeafCompressionPass() ? 0 : 1) :
-#if (MERGE_BOX_NODES_FLAG_RTIP3_1 > 1)
-                                                   (isLeaderBoxChild ? 1 : 0);
+
+        const uint nodeRangeLength = childIsLeaf ? (EnableLeafCompressionPass() ? 0 : 1) :
+#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
+                                                    1; // Run in emulation for now. update later to match the hardware format.
+#elif (MERGE_BOX_NODES_FLAG_RTIP3_1 == 2)
+                                                    ((leaderBoxMask & (1u << (laneGroup.laneIndex + 1))) == 0) ? 0 : 1;
 #else
                                                     1;
 #endif
@@ -1294,7 +1295,7 @@ static void EncodeCompressedBoxNode(
                                                        childScratchNode.packedFlags,
                                                        childScratchNodeIndex,
                                                        nodeType,
-                                                       primRangeLength,
+                                                       nodeRangeLength,
                                                        rcpExponents,
                                                        parentBbox.min,
                                                        numPrimRefs);

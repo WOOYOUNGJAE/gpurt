@@ -35,6 +35,7 @@
 #define _COMMON_HLSL
 
 // 0: Disable, 1: Enable without compaction, 2: Enable with compaction
+// Option 1 is available only in emulation
 #define MERGE_BOX_NODES_FLAG_RTIP3_1 2
 
 #include "InstanceDesc.hlsli"
