@@ -85,47 +85,7 @@ bool EnableWaveLeafCompressionPass()
 }
 
 //=====================================================================================================================
-// Allocation of compressed leaf nodes is deferred to the compression pass. Leaf nodes in the root of a rebraided BLAS
-// are an exception. They must be allocated near the beginning of the tree to support rebraid. Some small unused space
-// will be left between the end of the compressed data and the next node.
-uint GetNumInlinePrimStructs(
-    LaneGroup   laneGroup,
-    uint        scratchNodesScratchOffset,
-    uint        numPrimRefs,
-    uint        numLeafChildren,
-    uint        childScratchNodeIdx,
-    bool        isRebraidRootNode,
-    bool        isLeaf)
-{
-    uint numInlinePrimStructs = 0;
-
-    if (EnableWaveLeafCompressionPass() && (isRebraidRootNode == false))
-    {
-        numInlinePrimStructs = 0;
-    }
-    else if (Settings.maxPrimRangeSize <= 2)
-    {
-        numInlinePrimStructs = numLeafChildren;
-    }
-    else
-    {
-        uint numPrimStructs = 0;
-        if (isLeaf)
-        {
-            const uint rangeNumPrims = FetchScratchNodeNumPrimitives(
-                scratchNodesScratchOffset, childScratchNodeIdx, IsLeafNode(childScratchNodeIdx, numPrimRefs));
-
-            // Minimum two triangles per prim struct in each range
-            numPrimStructs = RoundUpQuotient(rangeNumPrims, 2);
-        }
-        numInlinePrimStructs = laneGroup.Sum(numPrimStructs);
-    }
-
-    return numInlinePrimStructs;
-}
-
-//=====================================================================================================================
-static void PullUpBoxNode(
+static void PullUpChildNode(
     LaneGroup                laneGroup,
     in    bool               isRootNode,
     in    uint               scratchNodesScratchOffset,
@@ -159,12 +119,7 @@ static void PullUpBoxNode(
         scratchNodeIdx = parentScratchNodeIdx;
         needToLoad = true;
     }
-
-    // This bitfield is an array of 2 bit indices indicating which of the first 4 boxes was split to produce a given
-    // box. It is initialized to [0, 1, 2, 3] for the first 4 boxes. After the first 4 boxes are generated, each
-    // additional box takes the index of the box it was split from.
-    uint packedSourceBoxes = 0b11100100;
-
+    
     while (1)
     {
         const uint firstInvalidLane = laneGroup.GetFirstActiveLaneIndex(scratchNodeIdx == INVALID_IDX);
@@ -181,8 +136,7 @@ static void PullUpBoxNode(
                 isCollapse = (scratchNode.numPrimitivesAndDoCollapse >> 1) == 2;
             }
 
-            isLeaf = (IsLeafNode(scratchNodeIdx, numPrimRefs) ||
-                      ((Settings.topLevelBuild == false) && isCollapse));
+            isLeaf = (IsLeafNode(scratchNodeIdx, numPrimRefs) || isCollapse);
             isBox  = !isLeaf;
             scratchNodeArea = isLeaf ? -1.0f : scratchNode.sah_or_v2_or_instBasePtr.y;
 
@@ -221,12 +175,6 @@ static void PullUpBoxNode(
             // This thread takes the right child
             scratchNodeIdx = rightNode;
             needToLoad = true;
-
-            if (laneGroup.laneIndex >= 4)
-            {
-                const uint sourceBoxIndex = (packedSourceBoxes >> (maxNodeLane * 2)) & 0b11;
-                packedSourceBoxes |= sourceBoxIndex << (laneGroup.laneIndex * 2);
-            }
         }
     }
     
@@ -243,15 +191,11 @@ static void PullUpBoxNode(
     uint dstStackBaseIndex = 0;
     numLeafChildren = laneGroup.BallotCount(isLeaf);
     GPU_ASSERT(numBoxChildren + numLeafChildren > 0 && numBoxChildren + numLeafChildren <= 8);
-    if (Settings.topLevelBuild == 0)
+    if (laneGroup.IsFirstLane())
     {
-        const uint numInlinePrimStructs = 0;
-        if (laneGroup.IsFirstLane())
-        {
-            IncrementAccelStructHeaderField(ACCEL_STRUCT_HEADER_NUM_INTERNAL_FP32_NODES_OFFSET, numBoxChildren);
-            const uint stackPtrOffset = ShaderConstants.offsets.qbvhGlobalStackPtrs;
-            ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_SRC_PTR_OFFSET, numBoxChildren, dstStackBaseIndex);
-        }
+        IncrementAccelStructHeaderField(ACCEL_STRUCT_HEADER_NUM_INTERNAL_FP32_NODES_OFFSET, numBoxChildren);
+        const uint stackPtrOffset = ShaderConstants.offsets.qbvhGlobalStackPtrs;
+        ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_SRC_PTR_OFFSET, numBoxChildren, dstStackBaseIndex);
     }
 
     dstStackBaseIndex = laneGroup.ReadFirstLane(dstStackBaseIndex);
@@ -321,19 +265,14 @@ static void PullUpBoxNode(
             }
         }
 
-
-        // const ScratchNode parentScratchNode = FetchScratchNode(scratchNodesScratchOffset, parentScratchNodeIdx);
         parentWideNode.bbox_min     = FetchScratchNodeData<float3>(scratchNodesScratchOffset, parentScratchNodeIdx, SCRATCH_NODE_BBOX_MIN_OFFSET);
         parentWideNode.scratchIndex = parentScratchNodeIdx;
         parentWideNode.bbox_max     = FetchScratchNodeData<float3>(scratchNodesScratchOffset, parentScratchNodeIdx, SCRATCH_NODE_BBOX_MAX_OFFSET);
-        // parentWideNode.boxChildrenBaseDstIndex = baseDstBoxIdx;
 
-        GPU_ASSERT(numBoxChildren <= 8);
         uint packedFlags = 0;
         packedFlags = bitFieldInsert(packedFlags, 0, 4, numBoxChildren);
         packedFlags = bitFieldInsert(packedFlags, 4, 4, numLeafChildren);
         packedFlags = bitFieldInsert(packedFlags, 8, 1, 1);
-        // packedFlags = bitFieldInsert(packedFlags, 5, 16, (packedSourceBoxes >> 8)); // TODO: this is child's sourceBox
         parentWideNode.packedFlags = packedFlags;
 
         ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.scratchWideNodeCounter, 1);
@@ -352,7 +291,7 @@ static void PullUpBoxNode(
     const uint primCount = WaveActiveSum(localPrimCount);
     if (WaveIsFirstLane())
     {
-        if ((Settings.topLevelBuild == false) && (primCount > 0))
+        if (primCount > 0)
         {
             ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.qbvhGlobalStackPtrs +
                                          NumLeafsDoneOffset(),
@@ -376,8 +315,7 @@ void CollapseScratchBvhImpl(
     const bool isSinglePrimBvh = (numPrimRefs == 1);
 
     const ScratchNode rootScratchNode = FetchScratchNode(scratchNodesScratchOffset, rootNodeIndex);
-    const uint numActivePrims =
-        Settings.topLevelBuild ? numPrimRefs : FetchScratchNodeNumPrimitives(rootScratchNode, isSinglePrimBvh);
+    const uint numActivePrims = FetchScratchNodeNumPrimitives(rootScratchNode, isSinglePrimBvh);
 
     const uint maxNumInternalNodes = GetNumInternalNodeCount(numActivePrims);
 
@@ -423,7 +361,7 @@ void CollapseScratchBvhImpl(
             const uint bvhNodeDstIdx = stackEntry.y;
 
             // Pull up the nodes chosen by SAH to be the new children in BVH8
-            PullUpBoxNode(laneGroup,
+            PullUpChildNode(laneGroup,
                           (globalStackIndex == 0),
                           scratchNodesScratchOffset,
                           scratchWideNodesScratchOffset,
@@ -483,11 +421,8 @@ void CollapseScratchBvh(
     if (globalId == 0)
     {
         // Clear Task Buffers
-        TASK_COUNTER_BUFFER.Store<uint>(TASK_COUNTER_OFFSET, 0);        
+        TASK_COUNTER_BUFFER.Store<uint>(TASK_COUNTER_OFFSET, 0);
         TASK_COUNTER_BUFFER.Store<uint>(NUM_TASKS_DONE_OFFSET, 0);
-        GPU_DPF("numLeafsDone: %d", ScratchGlobal.Load(ShaderConstants.offsets.qbvhGlobalStackPtrs +
-                                NumLeafsDoneOffset()));
-        // GPU_DPF("numLeafChildren: %d", ScratchGlobal.Load(ShaderConstants.offsets.scratchWideNodeCounter)); // 15937
     }
 #endif
 }

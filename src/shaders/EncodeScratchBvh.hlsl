@@ -24,8 +24,7 @@
  **********************************************************************************************************************/
 #ifndef _ENCODE_SCRATCH_BVH_HLSL
 #define _ENCODE_SCRATCH_BVH_HLSL
-#define USE_LDS_CHILDREN 1
-#define NOT_SUPPORTED_IF_ZERO 0
+#define USE_LDS_CHILDREN 1 // this is default setting
 #if NO_SHADER_ENTRYPOINT == 0
 //=====================================================================================================================
 #include "../shadersClean/common/ShaderDefs.hlsli"
@@ -103,26 +102,6 @@ bool EnableWaveLeafCompressionPass()
 #else
     return EnableLeafCompressionPass();
 #endif
-}
-
-//=====================================================================================================================
-// Returns true to enable the legacy leaf compression pass (supports wave64 and larger prim range sizes)
-bool EnableLegacyLeafCompressionPass()
-{
-#if BUILD_PARALLEL
-    return EnableLeafCompressionPass();
-#else
-    return false;
-#endif
-}
-
-//=====================================================================================================================
-// Encodes the sizes of two sets into a switch-case tag for union handling.
-// Packs the sizes of two sets into a 6-bit tag: (sizeA << 3) | sizeB.
-uint EncodeChildrenSetCounts(const uint setCounts0, const uint setCounts1)
-{
-    const uint encodedSize = (setCounts0 << 3) | setCounts1;
-    return encodedSize;
 }
 
 //=====================================================================================================================
@@ -373,116 +352,104 @@ static void WriteLeafNode(
     in uint               nodeOffset,
     in uint               parentNodePointer)
 {
-    if (Settings.topLevelBuild)
+    bool isTri1Valid = false;
+    bool isTri0Opaque = false;
+    bool isTri1Opaque = false;
+    uint primId0 = 0;
+    uint primId1 = 0;
+    uint geomId0 = 0;
+    uint geomId1 = 0;
+    TriangleData tri0 = (TriangleData) 0;
+    TriangleData tri1 = (TriangleData) 0;
+
+    const bool isQuadPrim =
+        Settings.enableEarlyPairCompression && IsScratchNodeQuadPrimitive(scratchNode);
+
+    if (isQuadPrim)
     {
-        Gfx12::WriteInstanceNode(offsets,
-                                 numPrimRefs,
-                                 scratchNode,
-                                 scratchNodeIdx,
-                                 nodeOffset,
-                                 parentNodePointer);
+        isTri1Valid = true;
+        isTri0Opaque = IsOpaqueNode(scratchNode.packedFlags);
+        isTri1Opaque = isTri0Opaque;
+        primId0 = GetScratchNodePrimitiveIndex(scratchNode, 0);
+        primId1 = GetScratchNodePrimitiveIndex(scratchNode, 1);
+        geomId0 = ExtractScratchNodeGeometryIndex(scratchNode);
+        geomId1 = geomId0;
+        tri0 = GetScratchNodeQuadVertices(scratchNodesScratchOffset, scratchNodeIdx, 0);
+        tri1 = GetScratchNodeQuadVertices(scratchNodesScratchOffset, scratchNodeIdx, 1);
     }
-    else
+    else if (IsLeafNode(scratchNodeIdx, numPrimRefs) == false)
     {
-        bool isTri1Valid = false;
-        bool isTri0Opaque = false;
-        bool isTri1Opaque = false;
-        uint primId0 = 0;
-        uint primId1 = 0;
-        uint geomId0 = 0;
-        uint geomId1 = 0;
-        TriangleData tri0 = (TriangleData) 0;
-        TriangleData tri1 = (TriangleData) 0;
+        uint firstNodeIndex;
+        ScratchNode scratchNodeTri0;
 
-        const bool isQuadPrim =
-            Settings.enableEarlyPairCompression && IsScratchNodeQuadPrimitive(scratchNode);
+        uint secondNodeIndex;
+        ScratchNode scratchNodeTri1;
 
-        if (isQuadPrim)
+        if (UsePrimIndicesArray())
         {
-            isTri1Valid = true;
-            isTri0Opaque = IsOpaqueNode(scratchNode.packedFlags);
-            isTri1Opaque = isTri0Opaque;
-            primId0 = GetScratchNodePrimitiveIndex(scratchNode, 0);
-            primId1 = GetScratchNodePrimitiveIndex(scratchNode, 1);
-            geomId0 = ExtractScratchNodeGeometryIndex(scratchNode);
-            geomId1 = geomId0;
-            tri0 = GetScratchNodeQuadVertices(scratchNodesScratchOffset, scratchNodeIdx, 0);
-            tri1 = GetScratchNodeQuadVertices(scratchNodesScratchOffset, scratchNodeIdx, 1);
+            firstNodeIndex = GetPrimRefIdx(FetchSortedPrimIndex(ShaderConstants.offsets.primIndicesSorted,
+                                                                scratchNode.sortedPrimIndex),
+                                            numPrimRefs);
+            scratchNodeTri0 = FetchScratchNode(scratchNodesScratchOffset, firstNodeIndex);
+
+            secondNodeIndex = GetPrimRefIdx(FetchSortedPrimIndex(ShaderConstants.offsets.primIndicesSorted,
+                                                                    scratchNode.sortedPrimIndex + 1),
+                                            numPrimRefs);
+            scratchNodeTri1 = FetchScratchNode(scratchNodesScratchOffset, secondNodeIndex);
         }
-        else if (IsLeafNode(scratchNodeIdx, numPrimRefs) == false)
+        else if (CollapseAnyPairs())
         {
-            uint firstNodeIndex;
-            ScratchNode scratchNodeTri0;
+            firstNodeIndex = scratchNode.left_or_primIndex_or_instIndex;
+            scratchNodeTri0 = FetchScratchNode(scratchNodesScratchOffset, firstNodeIndex);
 
-            uint secondNodeIndex;
-            ScratchNode scratchNodeTri1;
-
-            if (UsePrimIndicesArray())
-            {
-                firstNodeIndex = GetPrimRefIdx(FetchSortedPrimIndex(ShaderConstants.offsets.primIndicesSorted,
-                                                                    scratchNode.sortedPrimIndex),
-                                               numPrimRefs);
-                scratchNodeTri0 = FetchScratchNode(scratchNodesScratchOffset, firstNodeIndex);
-
-                secondNodeIndex = GetPrimRefIdx(FetchSortedPrimIndex(ShaderConstants.offsets.primIndicesSorted,
-                                                                     scratchNode.sortedPrimIndex + 1),
-                                                numPrimRefs);
-                scratchNodeTri1 = FetchScratchNode(scratchNodesScratchOffset, secondNodeIndex);
-            }
-            else if (CollapseAnyPairs())
-            {
-                firstNodeIndex = scratchNode.left_or_primIndex_or_instIndex;
-                scratchNodeTri0 = FetchScratchNode(scratchNodesScratchOffset, firstNodeIndex);
-
-                secondNodeIndex = scratchNode.right_or_geometryIndex;
-                scratchNodeTri1 = FetchScratchNode(scratchNodesScratchOffset, secondNodeIndex);
-            }
-            else
-            {
-                firstNodeIndex = scratchNode.left_or_primIndex_or_instIndex;
-                scratchNodeTri0 = FetchScratchNode(scratchNodesScratchOffset, firstNodeIndex);
-
-                secondNodeIndex = scratchNodeTri0.parent;
-                scratchNodeTri1 = FetchScratchNode(scratchNodesScratchOffset, secondNodeIndex);
-            }
-
-            isTri1Valid = true;
-            isTri0Opaque = IsOpaqueNode(scratchNodeTri0.packedFlags);
-            isTri1Opaque = IsOpaqueNode(scratchNodeTri1.packedFlags);
-            primId0 = scratchNodeTri0.left_or_primIndex_or_instIndex;
-            primId1 = scratchNodeTri1.left_or_primIndex_or_instIndex;
-            geomId0 = ExtractScratchNodeGeometryIndex(scratchNodeTri0);
-            geomId1 = ExtractScratchNodeGeometryIndex(scratchNodeTri1);
-            tri0.v0 = scratchNodeTri0.bbox_min_or_v0;
-            tri0.v1 = scratchNodeTri0.bbox_max_or_v1;
-            tri0.v2 = scratchNodeTri0.sah_or_v2_or_instBasePtr;
-            tri1.v0 = scratchNodeTri1.bbox_min_or_v0;
-            tri1.v1 = scratchNodeTri1.bbox_max_or_v1;
-            tri1.v2 = scratchNodeTri1.sah_or_v2_or_instBasePtr;
+            secondNodeIndex = scratchNode.right_or_geometryIndex;
+            scratchNodeTri1 = FetchScratchNode(scratchNodesScratchOffset, secondNodeIndex);
         }
         else
         {
-            isTri0Opaque = IsOpaqueNode(scratchNode.packedFlags);
-            primId0 = scratchNode.left_or_primIndex_or_instIndex;
-            geomId0 = ExtractScratchNodeGeometryIndex(scratchNode);
-            tri0.v0 = scratchNode.bbox_min_or_v0;
-            tri0.v1 = scratchNode.bbox_max_or_v1;
-            tri0.v2 = scratchNode.sah_or_v2_or_instBasePtr;
+            firstNodeIndex = scratchNode.left_or_primIndex_or_instIndex;
+            scratchNodeTri0 = FetchScratchNode(scratchNodesScratchOffset, firstNodeIndex);
+
+            secondNodeIndex = scratchNodeTri0.parent;
+            scratchNodeTri1 = FetchScratchNode(scratchNodesScratchOffset, secondNodeIndex);
         }
 
-        PrimStruct3_1::WritePairPrimStruct(tri0,
-                                           isTri0Opaque,
-                                           primId0,
-                                           geomId0,
-                                           isTri1Valid,
-                                           tri1,
-                                           isTri1Opaque,
-                                           primId1,
-                                           geomId1,
-                                           nodeOffset);
-
-        DstBuffer.Store(offsets.primNodePtrs + (primStructIdx * sizeof(uint)), nodeOffset);
+        isTri1Valid = true;
+        isTri0Opaque = IsOpaqueNode(scratchNodeTri0.packedFlags);
+        isTri1Opaque = IsOpaqueNode(scratchNodeTri1.packedFlags);
+        primId0 = scratchNodeTri0.left_or_primIndex_or_instIndex;
+        primId1 = scratchNodeTri1.left_or_primIndex_or_instIndex;
+        geomId0 = ExtractScratchNodeGeometryIndex(scratchNodeTri0);
+        geomId1 = ExtractScratchNodeGeometryIndex(scratchNodeTri1);
+        tri0.v0 = scratchNodeTri0.bbox_min_or_v0;
+        tri0.v1 = scratchNodeTri0.bbox_max_or_v1;
+        tri0.v2 = scratchNodeTri0.sah_or_v2_or_instBasePtr;
+        tri1.v0 = scratchNodeTri1.bbox_min_or_v0;
+        tri1.v1 = scratchNodeTri1.bbox_max_or_v1;
+        tri1.v2 = scratchNodeTri1.sah_or_v2_or_instBasePtr;
     }
+    else
+    {
+        isTri0Opaque = IsOpaqueNode(scratchNode.packedFlags);
+        primId0 = scratchNode.left_or_primIndex_or_instIndex;
+        geomId0 = ExtractScratchNodeGeometryIndex(scratchNode);
+        tri0.v0 = scratchNode.bbox_min_or_v0;
+        tri0.v1 = scratchNode.bbox_max_or_v1;
+        tri0.v2 = scratchNode.sah_or_v2_or_instBasePtr;
+    }
+
+    PrimStruct3_1::WritePairPrimStruct(tri0,
+                                        isTri0Opaque,
+                                        primId0,
+                                        geomId0,
+                                        isTri1Valid,
+                                        tri1,
+                                        isTri1Opaque,
+                                        primId1,
+                                        geomId1,
+                                        nodeOffset);
+
+    DstBuffer.Store(offsets.primNodePtrs + (primStructIdx * sizeof(uint)), nodeOffset);
 }
 
 //=====================================================================================================================
@@ -651,46 +618,6 @@ static void WritePrimCompBatches3_1(
     }
 }
 
-//=====================================================================================================================
-// Allocation of compressed leaf nodes is deferred to the compression pass. Leaf nodes in the root of a rebraided BLAS
-// are an exception. They must be allocated near the beginning of the tree to support rebraid. Some small unused space
-// will be left between the end of the compressed data and the next node.
-uint GetNumInlinePrimStructs(
-    LaneGroup   laneGroup,
-    uint        scratchNodesScratchOffset,
-    uint        numPrimRefs,
-    uint        numLeafChildren,
-    uint        childScratchNodeIdx,
-    bool        isRebraidRootNode,
-    bool        isLeaf)
-{
-    uint numInlinePrimStructs = 0;
-
-    if (EnableWaveLeafCompressionPass() && (isRebraidRootNode == false))
-    {
-        numInlinePrimStructs = 0;
-    }
-    else if (Settings.maxPrimRangeSize <= 2)
-    {
-        numInlinePrimStructs = numLeafChildren;
-    }
-    else
-    {
-        uint numPrimStructs = 0;
-        if (isLeaf)
-        {
-            const uint rangeNumPrims = FetchScratchNodeNumPrimitives(
-                scratchNodesScratchOffset, childScratchNodeIdx, IsLeafNode(childScratchNodeIdx, numPrimRefs));
-
-            // Minimum two triangles per prim struct in each range
-            numPrimStructs = RoundUpQuotient(rangeNumPrims, 2);
-        }
-        numInlinePrimStructs = laneGroup.Sum(numPrimStructs);
-    }
-
-    return numInlinePrimStructs;
-}
-
 //======================================================================================================================
 void InitObbRefitStackPtrs()
 {
@@ -703,8 +630,8 @@ void InitObbRefitStackPtrs()
         ScratchGlobal.Store<ObbRefitStackPtrs>(ShaderConstants.offsets.obbRefitStackPtrs, obbRefitStackPtrs);
     }
 }
-#if USE_LDS_CHILDREN
 //=====================================================================================================================
+// Consecutive greedy merging method from "Memory-Efficient BVH" (HPG 2026)
 static bool MergeBoxNodes(
     LaneGroup                laneGroup,
     in    uint               laneGroupIndex,
@@ -714,6 +641,8 @@ static bool MergeBoxNodes(
 {
     bool isMergedLane = false;
 
+    // Starts with 11111111. If result of mask is 10010001,
+    // that means 0,4,7 are leader nodes, and 1,2,3 are merged into 0, and 5,6 are merged into 4.
     uint leaderNodeMask = bits(8); // 0b11111111
     uint childBoxMask = laneGroup.Ballot(childIsBox);
     ScratchWideNode childNode;
@@ -738,7 +667,7 @@ static bool MergeBoxNodes(
     uint mergedCount = numBoxesInTarget + numLeavesInTarget;
     uint remaining = childBoxMask & ~(1u << targetLane);
 
-    // Broadcast is safe beacause all lanes are active
+    // Lanegroup broadcast is safe because all lanes are active
     while (remaining)
     {
         const uint sourceLane = firstbitlow(remaining);
@@ -853,8 +782,6 @@ static bool MergeBoxNodes(
     // Clear the leaf bit in the mask.
     leaderNodeMask &= childBoxMask;
 
-    // If result of mask is 10010001,
-    // that means 0,4,7 are leader node, and 1,2,3 are merged into 0, and 5,6 are merged into 4.
 
     // Update leader lane's node info
     // Mark the current lane as an leader node.
@@ -867,24 +794,10 @@ static bool MergeBoxNodes(
         }
         else
         {
-            // Clear Node
-            // ScratchWideNode emptyNode;
-            // emptyNode.children0WideNodeIndexOrLeafScratchIndex = 0xffffffff.xxxx;
-            // emptyNode.children1WideNodeIndexOrLeafScratchIndex = 0xffffffff.xxxx;
-            // emptyNode.bbox_min = float3(FLT_MAX, FLT_MAX, FLT_MAX);
-            // emptyNode.scratchIndex = INVALID_IDX;
-            // emptyNode.bbox_max = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
-            // emptyNode.packedFlags = 0;
-            // WriteScratchWideNode(scratchNodesScratchOffset, childWideScratchIndex, emptyNode);
-
             // Update Flags - mark as 0 to indicate this is not a leader node.
             // const uint packedFlags = bitFieldInsert(childNode.packedFlags, 8, 1, 0);
             const uint packedFlags = 0;
             WriteScratchWideNodeData(scratchNodesScratchOffset, childWideScratchIndex, SCRATCH_WIDE_NODE_FLAGS_OFFSET, packedFlags);
-
-            // uint4 emptyChildren = 0xffffffff.xxxx;
-            // WriteScratchWideNodeData<uint4>(scratchNodesScratchOffset, childWideScratchIndex, SCRATCH_WIDE_NODE_CHILDREN0_OR_LEAF_SCRATCH_INDEX_OFFSET, emptyChildren);
-            // WriteScratchWideNodeData<uint4>(scratchNodesScratchOffset, childWideScratchIndex, SCRATCH_WIDE_NODE_CHILDREN1_OR_LEAF_SCRATCH_INDEX_OFFSET, emptyChildren);
         }
     }
     return isMergedLane;
@@ -1027,7 +940,7 @@ static bool MergeBoxOnlyNodes(
     }
     return isMergedLane;
 }
-#endif
+
 //=====================================================================================================================
 static void EncodeCompressedBoxNode(
     LaneGroup                laneGroup,
@@ -1045,7 +958,6 @@ static void EncodeCompressedBoxNode(
     in    uint               numPrimRefs,
     in    bool               isRebraidRootNode)
 {
-#if MERGE_BOX_NODES_FLAG_RTIP3_1
     uint baseDstBoxIdx      = 0; // node's first box child's index from total nodes
     uint numLeafChildren    = 0; // num of leaf of parent node
     uint numBoxChildren     = 0; // num of box of parent node
@@ -1127,7 +1039,6 @@ static void EncodeCompressedBoxNode(
     uint boxOrLeafChildIndex = childIsBox ? laneGroup.laneIndex : laneGroup.laneIndex - numBoxChildren;
 
     bool isMerged = MergeBoxNodes(laneGroup, laneGroupIndex, childWideScratchIndex, scratchWideNodesScratchOffset, childIsBox);
-    // bool isMerged = MergeBoxOnlyNodes(laneGroup, laneGroupIndex, childWideScratchIndex, scratchWideNodesScratchOffset, childIsBox);
     const bool isLeaderBoxChild = childIsBox && !isMerged;
     const bool isMergedBoxChild = childIsBox && isMerged;
 
@@ -1144,7 +1055,6 @@ static void EncodeCompressedBoxNode(
         WriteScratchWideNodeData(scratchWideNodesScratchOffset, parentWideScratchNodeIndex, SCRATCH_WIDE_NODE_FLAGS_OFFSET, parentWideNodePackedFlags);
     }
 #if (MERGE_BOX_NODES_FLAG_RTIP3_1 > 1)
-
     uint shiftedMask = leaderBoxMask & ((1u << laneGroup.laneIndex) - 1);
     const uint boxChildCompactedIndexInParent = countbits(shiftedMask);
     const uint boxChildIndexInParent = boxChildCompactedIndexInParent;
@@ -1154,22 +1064,20 @@ static void EncodeCompressedBoxNode(
     const bool pushToStack = childIsBox;
 #endif // (MERGE_BOX_NODES_FLAG_RTIP3_1 > 1)
 
-    if (Settings.topLevelBuild == 0)
+    if (laneGroup.IsFirstLane())
     {
         const uint numInlinePrimStructs = 0;
-        if (laneGroup.IsFirstLane())
-        {
-            // This code assumes STACK_PTRS_SRC_PTR_OFFSET and STACK_PTRS_DST_PTR_OFFSET are in consecutive
-            // DWORDs.
-            const uint stackPtrOffset = ShaderConstants.offsets.qbvhGlobalStackPtrs;
+        // This code assumes STACK_PTRS_SRC_PTR_OFFSET and STACK_PTRS_DST_PTR_OFFSET are in consecutive
+        // DWORDs.
+        const uint stackPtrOffset = ShaderConstants.offsets.qbvhGlobalStackPtrs;
 #if (MERGE_BOX_NODES_FLAG_RTIP3_1 > 1)
-            const uint numBoxchildrenToPush = numLeaderBoxChildren;
+        const uint numBoxchildrenToPush = numLeaderBoxChildren;
 #else
-            const uint numBoxchildrenToPush = numBoxChildren;
+        const uint numBoxchildrenToPush = numBoxChildren;
 #endif
-            ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_DST_PTR_OFFSET, numBoxchildrenToPush + numInlinePrimStructs, dstStackIdx);
-        }
+        ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_DST_PTR_OFFSET, numBoxchildrenToPush + numInlinePrimStructs, dstStackIdx);
     }
+
 
     if (laneGroup.IsFirstLane())
     {
@@ -1217,10 +1125,7 @@ static void EncodeCompressedBoxNode(
         {
             QBVH8::WriteLeafNodeBaseOffset(currNodeOffset, baseLeafNodeOffset);
         }
-        else if (Settings.topLevelBuild == 0)
-        {
-            QBVH8::WriteLeafNodeBaseOffset(currNodeOffset, INVALID_NODE);
-        }
+        QBVH8::WriteLeafNodeBaseOffset(currNodeOffset, INVALID_NODE);
 
         QBVH8::WriteOrigin(currNodeOffset, parentBbox.min);
 
@@ -1231,19 +1136,15 @@ static void EncodeCompressedBoxNode(
 #else
         QBVH8::WritePackedExpChildIdxAndCount(currNodeOffset, exponents, indexInParent, validChildCount);
 #endif
-
         // Store the source box bitfield in the upper bits of the OBB DWORD (unused by HW). This is used to construct
         // four filter boxes for instances.
         uint packedFlags = FetchScratchWideNodeData<uint>(scratchWideNodesScratchOffset, parentWideScratchNodeIndex, SCRATCH_WIDE_NODE_FLAGS_OFFSET);
+        uint obbMatrixIndex = INVALID_OBB;
+#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
         const uint childrenLeaderMask = bitFieldExtract(packedFlags, 9, 8);
-        uint leaderMaskAndObbMatrixIndex = INVALID_OBB;
-        // leaderMaskAndObbMatrixIndex = bitFieldInsert(leaderMaskAndObbMatrixIndex, 7, 8, childrenLeaderMask);
-        QBVH8::WriteObbMatrixIndex(currNodeOffset, leaderMaskAndObbMatrixIndex);
-
-        if ((Settings.topLevelBuild == false) && (EnableLeafCompressionPass() == false))
-        {
-            basePrimStructIdx = IncrementAccelStructHeaderField(ACCEL_STRUCT_HEADER_NUM_LEAF_NODES_OFFSET, numLeafChildren);
-        }
+        obbMatrixIndex = bitFieldInsert(obbMatrixIndex, 7, 8, childrenLeaderMask);
+#endif
+        QBVH8::WriteObbMatrixIndex(currNodeOffset, obbMatrixIndex);
     }
 
     parentBbox.min    = laneGroup.ReadFirstLane(parentBbox.min);
@@ -1263,20 +1164,20 @@ static void EncodeCompressedBoxNode(
         childScratchNodeIndex = childWideScratchIndex;
     }
 
-    // if (childIsBox) GPU_ASSERT(!IsLeafNode(childScratchNodeIndex, numPrimRefs)); // all pass
     if (isValidChild)
     {
         // TLAS builds initialize these fields immediately. They should be left 0 for BLAS builds if we are compressing
         // leaf nodes. If we are not compressing, a single triangle primitive structure is produced immediately.
         // Either way the triangle node type field is 0.
-        const uint nodeType        = childIsLeaf ? (Settings.topLevelBuild ?
-                                                    NODE_TYPE_USER_NODE_INSTANCE : NODE_TYPE_TRIANGLE_0) :
-                                                    NODE_TYPE_BOX_QUANTIZED_BVH8;
-
+        const uint nodeType        = childIsLeaf ? NODE_TYPE_TRIANGLE_0 : NODE_TYPE_BOX_QUANTIZED_BVH8;
         const uint nodeRangeLength = childIsLeaf ? (EnableLeafCompressionPass() ? 0 : 1) :
-#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
-                                                    1; // Run in emulation for now. update later to match the hardware format.
+#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1) //Not hardware format support.
+                                                    1;
 #elif (MERGE_BOX_NODES_FLAG_RTIP3_1 == 2)
+                                                    // During the decode stage of traverse, nodeRangeLength indicates how many
+                                                    // internal nodes away the next sibling is from this boxNode. If the right
+                                                    // sibling has been merged and invalidated, increment it by 0 so that it
+                                                    // points to the same node as the left sibling.
                                                     ((leaderBoxMask & (1u << (laneGroup.laneIndex + 1))) == 0) ? 0 : 1;
 #else
                                                     1;
@@ -1305,22 +1206,6 @@ static void EncodeCompressedBoxNode(
         {
             QBVH8::WriteParentPointer(childNodeOffset, currNodePtr);
         }
-        else if (childIsLeaf)
-        {
-            // Process and compress leaf children
-            if (EnableLeafCompressionPass() == false)
-            {
-                // childScratchNode = FetchScratchNode(scratchNodesScratchOffset, childScratchNodeIndex);
-                WriteLeafNode(scratchNodesScratchOffset,
-                              offsets,
-                              numPrimRefs,
-                              childScratchNode,
-                              childScratchNodeIndex,
-                              basePrimStructIdx + boxOrLeafChildIndex,
-                              childNodeOffset,
-                              currNodePtr);
-            }
-        }
     }
     else
     {
@@ -1340,7 +1225,7 @@ static void EncodeCompressedBoxNode(
     const uint primCount = WaveActiveSum(localPrimCount);
     if (WaveIsFirstLane())
     {
-        if ((Settings.topLevelBuild == false) && (primCount > 0))
+        if (primCount > 0)
         {
             ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.qbvhGlobalStackPtrs +
                                          NumLeafsDoneOffset(),
@@ -1385,6 +1270,7 @@ void EncodeScratchBvhImpl(
     uint numScratchWideNodes
     )
 {
+    GPU_ASSERT(EnableWaveLeafCompressionPass());
     const AccelStructOffsets offsets = ShaderConstants.header.offsets;
 
     const uint rootNodeIndex = GetBvh2RootNodeIndex();
@@ -1394,8 +1280,7 @@ void EncodeScratchBvhImpl(
     const bool isSinglePrimBvh = (numPrimRefs == 1);
 
     const ScratchNode rootScratchNode = FetchScratchNode(scratchNodesScratchOffset, rootNodeIndex);
-    const uint numActivePrims =
-        Settings.topLevelBuild ? numPrimRefs : FetchScratchNodeNumPrimitives(rootScratchNode, isSinglePrimBvh);
+    const uint numActivePrims = FetchScratchNodeNumPrimitives(rootScratchNode, isSinglePrimBvh);
 
     const uint maxNumInternalNodes = GetNumInternalNodeCount(numActivePrims);
 
@@ -1411,42 +1296,29 @@ void EncodeScratchBvhImpl(
         // Pre-compute exponent reciprocal
         const float3 rcpExponents = ComputeFastExpReciprocal(exponents, 12);
 
-        if (Settings.topLevelBuild == false)
+        // Generate intersectable instance node data in BLAS metadata
+        if ((Settings.instanceMode == InstanceMode::Passthrough) || isSinglePrimBvh)
         {
-            // Generate intersectable instance node data in BLAS metadata
-            if ((Settings.instanceMode == InstanceMode::Passthrough) || isSinglePrimBvh)
-            {
-                const uint instanceMask =
-                    ExtractScratchNodeInstanceMask(rootScratchNode.packedFlags);
+            const uint instanceMask =
+                ExtractScratchNodeInstanceMask(rootScratchNode.packedFlags);
 
-                const uint blasRootNodePointer = CreateRootNodePointer3_1();
-                WriteInstancePassthrough(blasRootNodePointer,
-                                         bbox,
-                                         ACCEL_STRUCT_METADATA_INSTANCE_NODE_OFFSET);
-            }
-            else if (Settings.instanceMode == InstanceMode::FilterNode)
-            {
-                // Generate filter node data in BLAS metadata
-                WriteBlasInstanceFilterNode(scratchNodesScratchOffset,
-                                            numPrimRefs,
-                                            rootNodeIndex,
-                                            bbox.min,
-                                            exponents,
-                                            rcpExponents);
-            }
-
-            if (EnableLegacyLeafCompressionPass())
-            {
-                // Load acceleration structure header
-                AccelStructHeader header = DstBuffer.Load<AccelStructHeader>(0);
-
-                header.info2 =
-                    bitFieldInsert(header.info2, ACCEL_STRUCT_HEADER_INFO_2_LEGACY_LEAF_COMPRESSION_FLAGS_SHIFT, 1, 1);
-                DstBuffer.Store(ACCEL_STRUCT_HEADER_INFO_2_OFFSET, header.info2);
-            }
-
-            DstBuffer.Store(ACCEL_STRUCT_HEADER_PACKED_FLAGS_OFFSET, rootScratchNode.packedFlags);
+            const uint blasRootNodePointer = CreateRootNodePointer3_1();
+            WriteInstancePassthrough(blasRootNodePointer,
+                                        bbox,
+                                        ACCEL_STRUCT_METADATA_INSTANCE_NODE_OFFSET);
         }
+        else if (Settings.instanceMode == InstanceMode::FilterNode)
+        {
+            // Generate filter node data in BLAS metadata
+            WriteBlasInstanceFilterNode(scratchNodesScratchOffset,
+                                        numPrimRefs,
+                                        rootNodeIndex,
+                                        bbox.min,
+                                        exponents,
+                                        rcpExponents);
+        }
+
+        DstBuffer.Store(ACCEL_STRUCT_HEADER_PACKED_FLAGS_OFFSET, rootScratchNode.packedFlags);
 
         // Write parent pointer for root node.
         QBVH8::WriteParentPointer(offsets.internalNodes, INVALID_IDX);
@@ -1493,9 +1365,9 @@ void EncodeScratchBvhImpl(
             const uint bvhWideNodeSrcIdx = stackEntry.x; // parentWideScratchNodeIndex
             const uint bvhNodeDstIdx = GetStackDstIdx(stackEntry.y);
             const uint indexInParent = GetStackDstIdxInParent(stackEntry.y);
-            // if (laneGroup.IsFirstLane()) GPU_ASSERT(globalStackIndex == bvhNodeDstIdx); // passed
             const uint currNodeAddr = offsets.internalNodes + (bvhNodeDstIdx * QBVH8::NodeSizeInBytes);
             const uint currNodePtr = CreateBoxNodePointer(currNodeAddr, false);
+            
             // Pull up the nodes chosen by SAH to be the new children in BVH8
             EncodeCompressedBoxNode(laneGroup,
                                     rootNodeIndex,
@@ -1515,7 +1387,6 @@ void EncodeScratchBvhImpl(
             isGlobalStackEntryDone = true;
         }
     }
-#endif
 }
 
 } // namespace Gfx12
@@ -1534,7 +1405,6 @@ void EncodeScratchBvh(
     uint localIdIn  : SV_GroupThreadID)
 {
 #if GPURT_BUILD_RTIP3_1 && MERGE_BOX_NODES_FLAG_RTIP3_1
-
     uint globalId = globalIdIn;
     uint localId  = localIdIn;
     uint groupId  = groupIdIn;
@@ -1552,9 +1422,6 @@ void EncodeScratchBvh(
     {
         const uint rootWideNodeIndex = 0;
         InitStackPtrs(rootWideNodeIndex);
-#if NOT_SUPPORTED_IF_ZERO
-        Gfx12::InitObbRefitStackPtrs();
-#endif
     }
     END_TASK(1);
     BEGIN_TASK(RoundUpQuotient(numScratchWideNodes, BUILD_THREADGROUP_SIZE));
@@ -1619,4 +1486,5 @@ void EncodeScratchBvh(
 }
 #endif
 
+#undef USE_LDS_CHILDREN
 #endif
