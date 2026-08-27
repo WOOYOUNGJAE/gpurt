@@ -135,12 +135,6 @@ struct QuantizedBVH8BoxNode
         out_param(Float32BoxNode) f32BoxNode1,
         out_param(uint)           parentPointer);
 
-    void Decode2(
-        out_param(Float32BoxNode) f32BoxNode0,
-        out_param(Float32BoxNode) f32BoxNode1,
-        out_param(uint)           parentPointer,
-        out_param(uint)           leaderMask);
-
 #if GPURT_BVH_BUILD_SHADER
     void DecodeChildrenOffsets(out uint childPointers[8]);
 #endif
@@ -205,7 +199,7 @@ inline void QuantizedBVH8BoxNode::SetInternalNodeBaseOffset(uint internalNodeBas
 //=====================================================================================================================
 inline uint QuantizedBVH8BoxNode::OBBMatrixIndex()
 {
-#if MERGE_BOX_NODES_FLAG_RTIP3_1
+#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
     return obbMatrixIndex & 0x7f;
 #else
     return obbMatrixIndex;
@@ -550,7 +544,7 @@ inline void QuantizedBVH8BoxNode::Decode(
     bool previousRangeZero = false;
 
     uint3 exponents = Exponents();
-
+    uint prevInternal = internalOffset;
     // Valid children are always packed from the start of the node.
     for (uint i = 0; i < 8; i++)
     {
@@ -566,6 +560,17 @@ inline void QuantizedBVH8BoxNode::Decode(
             {
                 childPointers[i] = internalOffset;
                 internalOffset += (childInfos[i].NodeRangeLength() << 4);
+#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
+                uint leaderMask = LeaderMask();
+                if (leaderMask == 0 || (leaderMask & (1u << i)) != 0)
+                {
+                    prevInternal = childPointers[i];
+                }
+                else
+                {
+                    childPointers[i] = prevInternal;
+                }
+#endif
             }
             else
             {
@@ -618,134 +623,6 @@ inline void QuantizedBVH8BoxNode::Decode(
     f32BoxNode0.bbox3_min = aabbs[3].min;
     f32BoxNode0.bbox3_max = aabbs[3].max;
     f32BoxNode0.obbMatrixIndex = obbMatrixIndex;
-
-    f32BoxNode1.bbox0_min = aabbs[4].min;
-    f32BoxNode1.bbox0_max = aabbs[4].max;
-    f32BoxNode1.bbox1_min = aabbs[5].min;
-    f32BoxNode1.bbox1_max = aabbs[5].max;
-    f32BoxNode1.bbox2_min = aabbs[6].min;
-    f32BoxNode1.bbox2_max = aabbs[6].max;
-    f32BoxNode1.bbox3_min = aabbs[7].min;
-    f32BoxNode1.bbox3_max = aabbs[7].max;
-
-    for (uint j = 0; j < 4; j++)
-    {
-        f32BoxNode0.flags |= (childInfos[j].CullingFlags() << (j * 8));
-        f32BoxNode1.flags |= (childInfos[j + 4].CullingFlags() << (j * 8));
-
-        f32BoxNode0.instanceMask |= (childInfos[j].InstanceMask() << (j * 8));
-        f32BoxNode1.instanceMask |= (childInfos[j + 4].InstanceMask() << (j * 8));
-    }
-}
-
-
-//=====================================================================================================================
-inline void QuantizedBVH8BoxNode::Decode2(
-    out_param(Float32BoxNode) f32BoxNode0,
-    out_param(Float32BoxNode) f32BoxNode1,
-    out_param(uint)           parentPointer,
-    out_param(uint)           leaderMask
-)
-{
-    BoundingBox aabbs[8];
-    uint childPointers[8];
-    uint childReuse[8];
-
-    parentPointer = ParentPointer();
-
-    // Take local copies of base offsets as these are updated as children are decoded.
-    // Lower 4 bits of internal offset will always be 5 as this is the only valid internal
-    // node type.
-    uint internalOffset = internalNodeBaseOffset | NODE_TYPE_BOX_QUANTIZED_BVH8;
-    uint primitiveOffset = leafNodeBaseOffset;
-
-    uint aabbCount = ValidChildCount();
-
-    // Track the primitive range and node type of the previous child.
-    // Used to determine if child reuse is active for current box.
-    uint previousNodeType = 0;
-    bool previousRangeZero = false;
-
-    uint3 exponents = Exponents();
-    leaderMask = LeaderMask();
-    uint prevInternal = internalOffset;
-    // Valid children are always packed from the start of the node.
-    for (uint i = 0; i < 8; i++)
-    {
-        if (i < aabbCount)
-        {
-            // Decode the child offset.
-            // There are two running offsets: one for internal node children (boxes), and one for
-            // primitive node children (all other types).
-            // For primitive node children, the node type must be placed into the lower 4 bits.
-            // The appropriate running offset must be incremented by the number of consecutive
-            // 128-byte nodes the box points to.
-            if (childInfos[i].NodeType() == NODE_TYPE_BOX_QUANTIZED_BVH8)
-            {
-                childPointers[i] = internalOffset;
-#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
-                if (leaderMask == 0 || (leaderMask & (1u << i)) != 0)
-                {
-                    prevInternal = childPointers[i];
-                }
-                else
-                {
-                    childPointers[i] = prevInternal;
-                }
-#endif
-                internalOffset += (childInfos[i].NodeRangeLength() << 4);
-            }
-            else
-            {
-                childPointers[i] = primitiveOffset | childInfos[i].NodeType();
-                primitiveOffset += (childInfos[i].NodeRangeLength() << 4);
-            }
-
-            // Dequantize the box planes.
-            // Min planes range from 0-4095, and max planes from 1-4096.
-            // This will result in output planes ranging from 0 - 2^(exponent-127).
-            aabbs[i] = childInfos[i].DecodeBounds(origin, exponents);
-
-            // This box is reusing the child offset from the previous box if the node type is the
-            // same and the previous box had zero primitive range.
-            childReuse[i] = (previousNodeType == childInfos[i].NodeType()) && (previousRangeZero == true);
-            previousNodeType = childInfos[i].NodeType();
-            previousRangeZero = (childInfos[i].NodeRangeLength() == 0);
-        }
-        else
-        {
-            // Invalid children are always packed at the end of the node.
-            childPointers[i] = INVALID_NODE;
-
-            // Set the box planes to NaN to force a miss.
-            aabbs[i].min = float3(NaN, NaN, NaN);
-            aabbs[i].max = float3(NaN, NaN, NaN);
-
-            childReuse[i] = 0;
-        }
-    }
-
-    f32BoxNode0 = (Float32BoxNode)0;
-    f32BoxNode1 = (Float32BoxNode)0;
-
-    f32BoxNode0.child0 = childPointers[0];
-    f32BoxNode0.child1 = childPointers[1];
-    f32BoxNode0.child2 = childPointers[2];
-    f32BoxNode0.child3 = childPointers[3];
-    f32BoxNode1.child0 = childPointers[4];
-    f32BoxNode1.child1 = childPointers[5];
-    f32BoxNode1.child2 = childPointers[6];
-    f32BoxNode1.child3 = childPointers[7];
-
-    f32BoxNode0.bbox0_min = aabbs[0].min;
-    f32BoxNode0.bbox0_max = aabbs[0].max;
-    f32BoxNode0.bbox1_min = aabbs[1].min;
-    f32BoxNode0.bbox1_max = aabbs[1].max;
-    f32BoxNode0.bbox2_min = aabbs[2].min;
-    f32BoxNode0.bbox2_max = aabbs[2].max;
-    f32BoxNode0.bbox3_min = aabbs[3].min;
-    f32BoxNode0.bbox3_max = aabbs[3].max;
-    f32BoxNode0.obbMatrixIndex = obbMatrixIndex & 0x7f;
 
     f32BoxNode1.bbox0_min = aabbs[4].min;
     f32BoxNode1.bbox0_max = aabbs[4].max;

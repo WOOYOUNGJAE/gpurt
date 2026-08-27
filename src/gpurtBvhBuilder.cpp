@@ -1966,10 +1966,12 @@ void BvhBuilder::InitBuildConfig(
 #endif
 
     m_buildConfig.enableWideNodeMerging =
-        (m_buildConfig.topLevelBuild == true && (m_deviceSettings.wideNodeMergingFlags & static_cast<uint32>(GpuRt::WideNodeMergingFlags::TLAS))) ||
-        (m_buildConfig.topLevelBuild == false && (m_deviceSettings.wideNodeMergingFlags & static_cast<uint32>(GpuRt::WideNodeMergingFlags::BLAS)));
+        UpdateAllowed() == false &&
+        m_buildConfig.shouldUseTrivialBuilder == false &&
+        ((m_buildConfig.topLevelBuild == true && (m_deviceSettings.wideNodeMergingFlags & static_cast<uint32>(GpuRt::WideNodeMergingFlags::TLAS))) ||
+        (m_buildConfig.topLevelBuild == false && (m_deviceSettings.wideNodeMergingFlags & static_cast<uint32>(GpuRt::WideNodeMergingFlags::BLAS))));
             
-    if (m_deviceSettings.wideNodeMergingFlags)
+    if (m_buildConfig.enableWideNodeMerging)
     {
         m_buildConfig.enableOrientedBoundingBoxes = 0;
     }
@@ -4581,7 +4583,6 @@ void BvhBuilder::CollapseScratchBvh()
     BindPipeline(InternalRayTracingCsType::CollapseScratchBvh);
 
     const uint32 nodeCount       = GetNumInternalNodeCount();
-    // const uint32 numThreadGroups = GetNumPersistentThreadGroups(nodeCount, DefaultThreadGroupSize, 4U);
     const uint32 numThreadGroups = Util::RoundUpQuotient(nodeCount, DefaultThreadGroupSize);
 
 
@@ -4606,7 +4607,6 @@ void BvhBuilder::EncodeScratchBvh()
     BindPipeline(InternalRayTracingCsType::EncodeScratchBvh);
 
     const uint32 nodeCount       = GetNumInternalNodeCount();
-    // const uint32 numThreadGroups = GetNumPersistentThreadGroups(nodeCount, DefaultThreadGroupSize, 4U);
     const uint32 numThreadGroups = Util::RoundUpQuotient(nodeCount, DefaultThreadGroupSize);
 
     BuildShaderRootConstants0 shaderConstants =

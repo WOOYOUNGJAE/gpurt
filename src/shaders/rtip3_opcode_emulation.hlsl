@@ -979,18 +979,10 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
         Float32BoxNode node0 = (Float32BoxNode)0;
         Float32BoxNode node1 = (Float32BoxNode)0;
         uint parentPointer;
-        uint obbMatrixIndex;
-        uint leaderMask;
         
         QuantizedBVH8BoxNode node = FetchQuantizedBVH8BoxNode(ExtractInstanceAddr(baseNodePtr), nodePtr);
-#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
-        node.Decode2(node0, node1, parentPointer, leaderMask);
-        obbMatrixIndex = node.OBBMatrixIndex();
-        obbMatrixIndex = INVALID_OBB; // force disabled
-#else
         node.Decode(node0, node1, parentPointer);
-        obbMatrixIndex = node.obbMatrixIndex;
-#endif
+        node.obbMatrixIndex = node.OBBMatrixIndex();
         PerformEarlyBoxCulling(node0, baseNodePtr);
         PerformEarlyBoxCulling(node1, baseNodePtr);
 
@@ -1000,9 +992,9 @@ static Bvh8IntersectResult image_bvh8_intersect_ray_3_1(
         // OBB Transform
         float3 localRayOrigin = rayOrigin;
         float3 localRayDir = rayDir;
-        if (obbMatrixIndex != INVALID_OBB && IsOrientedBoundingBoxesEnabled())
+        if (node.obbMatrixIndex != INVALID_OBB && IsOrientedBoundingBoxesEnabled())
         {
-            float3x3 obbMatrix = OBBIndexToMatrix(obbMatrixIndex);
+            float3x3 obbMatrix = OBBIndexToMatrix(node.obbMatrixIndex);
 
             OBBTransform(obbMatrix,
                          rayOrigin,

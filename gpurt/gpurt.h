@@ -1159,7 +1159,6 @@ enum class WideNodeMergingFlags : uint32
     None          = 0x0,
     BLAS          = 0x1,
     TLAS          = 0x2,
-    InternalNodes = 0x4,
 };
 
 // Ray history trace
