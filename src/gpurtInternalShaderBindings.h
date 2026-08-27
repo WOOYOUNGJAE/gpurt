@@ -183,8 +183,8 @@ namespace InitAccelerationStructure
 
         uint32 isIndirectBuild;
         uint32 dynamicallyIncrementsPrimRefCount;
+        uint32 scratchWideNodeCountersOffset;
         uint32 padding0;
-        uint32 padding1;
 
         AccelStructHeader header;
         AccelStructMetadataHeader metadataHeader;

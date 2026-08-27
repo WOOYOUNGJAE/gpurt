@@ -35,8 +35,8 @@
 #include "../shadersClean/build/BuildRootSignature.hlsli"
 
 #define TASK_COUNTER_BUFFER   ScratchGlobal
-#define TASK_COUNTER_OFFSET   (ShaderConstants.offsets.taskLoopCounters + TASK_LOOP_QBVH_COUNTER_OFFSET)
-#define NUM_TASKS_DONE_OFFSET (ShaderConstants.offsets.taskLoopCounters + TASK_LOOP_QBVH_TASKS_DONE_OFFSET)
+#define TASK_COUNTER_OFFSET   (ShaderConstants.offsets.taskLoopCounters + TASK_LOOP_WIDE_BVH_COUNTER_OFFSET)
+#define NUM_TASKS_DONE_OFFSET (ShaderConstants.offsets.taskLoopCounters + TASK_LOOP_WIDE_BVH_TASKS_DONE_OFFSET)
 #include "TaskMacros.hlsl"
 
 template<typename T>
@@ -1213,6 +1213,10 @@ static void EncodeCompressedBoxNode(
     }
     // TODO : OBB preparation
 
+    if (laneGroup.IsFirstLane())
+    {
+        ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.wideNodeEncodingDoneCounter, 1 + numMergedBoxChildren);
+    }
     uint localPrimCount = 0;
     if (childScratchNodeIndex != INVALID_IDX)
     {
@@ -1223,15 +1227,6 @@ static void EncodeCompressedBoxNode(
     }
 
     const uint primCount = WaveActiveSum(localPrimCount);
-    if (WaveIsFirstLane())
-    {
-        if (primCount > 0)
-        {
-            ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.qbvhGlobalStackPtrs +
-                                         NumLeafsDoneOffset(),
-                                         primCount);
-        }
-    }
 
     const uint numEmptySlots = maxNumChildren - (numBoxChildren + numLeafChildren);
 
@@ -1337,16 +1332,13 @@ void EncodeScratchBvhImpl(
     const uint maxNumChildren = 8;
     while (isGlobalStackEntryDone == false)
     {
-        uint numLeafsDone = 0;
+        uint numWideNodeDone = 0;
         if (WaveIsFirstLane())
         {
-            numLeafsDone = ScratchGlobal.Load(ShaderConstants.offsets.qbvhGlobalStackPtrs +
-                                              NumLeafsDoneOffset());
+            numWideNodeDone = ScratchGlobal.Load(ShaderConstants.offsets.wideNodeEncodingDoneCounter);
         }
-
-        numLeafsDone = WaveReadLaneFirst(numLeafsDone);
-
-        if (numLeafsDone >= numActivePrims)
+        numWideNodeDone = WaveReadLaneFirst(numWideNodeDone);
+        if (numWideNodeDone >= numScratchWideNodes)
         {
             break;
         }
@@ -1428,7 +1420,6 @@ void EncodeScratchBvh(
     ClearStackPtrs(globalId, numScratchWideNodes, ShaderRootConstants.NumThreads());
     END_TASK(RoundUpQuotient(numScratchWideNodes, BUILD_THREADGROUP_SIZE));
 
-    if (globalId == 0) ScratchGlobal.Store(ShaderConstants.offsets.scratchWideNodeCounter, 0);
     const uint numThreads = numScratchWideNodes * 8;
     BEGIN_TASK(RoundUpQuotient(numThreads, BUILD_THREADGROUP_SIZE));
     Gfx12::EncodeScratchBvhImpl(globalId, localId, numActivePrims, numScratchWideNodes);
@@ -1462,22 +1453,6 @@ void EncodeScratchBvh(
 
 #if GPURT_ENABLE_GPU_DEBUG
     END_TASK(1);
-    // if (globalId == 0)
-    // {
-    //     uint totalValidCount = 0;
-    //     const uint numBoxNodes = ScratchGlobal.Load(ShaderConstants.offsets.qbvhGlobalStackPtrs + STACK_PTRS_DST_PTR_OFFSET);
-    //     for (uint i = 0; i < numBoxNodes; ++i)
-    //     {
-    //         const uint boxByteOffset = ShaderConstants.header.offsets.internalNodes + (i * QBVH8::NodeSizeInBytes);
-    //         const uint packedData = DstBuffer.Load(boxByteOffset + QUANTIZED_BVH8_NODE_OFFSET_EXP_CHILD_IDX_AND_VALID_COUNT);
-    //         const uint indexInParent = bitFieldExtract(packedData, 24, 1);
-    //         const uint validChildCount = bitFieldExtract(packedData, 28, 3) + 1;
-    //         totalValidCount += validChildCount;
-
-    //         // GPU_DPF("Box %u : indexInParent : %u, validChildCount : %u", i, indexInParent, validChildCount);
-    //     }
-    //     // GPU_DPF("totalValidCount: %u", totalValidCount);
-    // }
 #else
     END_TASK_NO_WAIT(1);
 #endif

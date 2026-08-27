@@ -59,6 +59,7 @@ struct RayTracingScratchDataOffsets
     uint32 reserved0;
     uint32 scratchWideNodeCounter; // Number of scratch wide nodes
     uint32 bvhWideNodeData;     // Wide node merging build only
+    uint32 wideNodeEncodingDoneCounter;
     uint32 sceneBounds;
     uint32 mortonCodes;
     uint32 mortonCodesSorted;
@@ -95,8 +96,6 @@ struct RayTracingScratchDataOffsets
     uint32 taskLoopCounters;
     uint32 debugCounters;
     uint32 primRefCount;
-
-    uint32 padding0;
 };
 
 struct BuildShaderConstants

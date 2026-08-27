@@ -304,6 +304,8 @@ struct TaskLoopCounters
     uint mergeSortTasksDone;
     uint qbvhTaskCounter;
     uint qbvhTasksDone;
+    uint wideBvhTaskCounter; // Currently used only in EncodeScratchBvh.
+    uint wideBvhTasksDone;
 };
 
 #define TASK_LOOP_BUILD_PARALLEL_COUNTER_OFFSET    0
@@ -312,6 +314,9 @@ struct TaskLoopCounters
 #define TASK_LOOP_MERGE_SORT_TASKS_DONE_OFFSET     12
 #define TASK_LOOP_QBVH_COUNTER_OFFSET              16
 #define TASK_LOOP_QBVH_TASKS_DONE_OFFSET           20
+#define TASK_LOOP_WIDE_BVH_COUNTER_OFFSET          24
+#define TASK_LOOP_WIDE_BVH_TASKS_DONE_OFFSET       28
+
 #define TASK_LOOP_COUNTERS_NUM_DWORDS              (sizeof(TaskLoopCounters) / sizeof(uint))
 
 #ifdef __cplusplus
@@ -321,6 +326,8 @@ static_assert(TASK_LOOP_MERGE_SORT_COUNTER_OFFSET        == offsetof(TaskLoopCou
 static_assert(TASK_LOOP_MERGE_SORT_TASKS_DONE_OFFSET     == offsetof(TaskLoopCounters, mergeSortTasksDone));
 static_assert(TASK_LOOP_QBVH_COUNTER_OFFSET              == offsetof(TaskLoopCounters, qbvhTaskCounter));
 static_assert(TASK_LOOP_QBVH_TASKS_DONE_OFFSET           == offsetof(TaskLoopCounters, qbvhTasksDone));
+static_assert(TASK_LOOP_WIDE_BVH_COUNTER_OFFSET          == offsetof(TaskLoopCounters, wideBvhTaskCounter));
+static_assert(TASK_LOOP_WIDE_BVH_TASKS_DONE_OFFSET       == offsetof(TaskLoopCounters, wideBvhTasksDone));
 #endif
 
 #if GPURT_BUILD_RTIP3_1

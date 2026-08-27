@@ -58,8 +58,8 @@ struct Constants
 
     uint isIndirectBuild;
     uint dynamicallyIncrementsPrimRefCount;
+    uint scratchWideNodeCountersOffset;
     uint padding0;
-    uint padding1;
 
     AccelStructHeader header;
     AccelStructMetadataHeader metadataHeader;
@@ -189,6 +189,9 @@ void InitAccelerationStructure(
             BuilderConstants.encodeTaskCounterScratchOffset + ENCODE_TASK_COUNTER_INDIRECT_ARGS, uint3(0, 1, 1));
 
         ResetCounters(ScratchGlobal, BuilderConstants.taskLoopCountersOffset, TASK_LOOP_COUNTERS_NUM_DWORDS);
+
+        const uint numScratchWideNodeCounters = 2;
+        ResetCounters(ScratchGlobal, BuilderConstants.scratchWideNodeCountersOffset, numScratchWideNodeCounters);
     }
 
     HeaderBuffer.Store<AccelStructMetadataHeader>(0, BuilderConstants.metadataHeader);

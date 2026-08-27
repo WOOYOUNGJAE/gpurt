@@ -329,7 +329,6 @@ void CollapseScratchBvhImpl(
     // we need to use the active primitive count to estimate the hardware internal node count.
     bool isGlobalStackEntryDone = (globalStackIndex >= maxNumInternalNodes);
 
-    int iteration = 0;
     while (isGlobalStackEntryDone == false)
     {
         uint numLeafsDone = 0;
@@ -401,12 +400,12 @@ void CollapseScratchBvh(
     uint waveId       = 0;
 
     INIT_TASK;
-    BEGIN_TASK(1)
-    if (globalId == 0)
-    {
-        InitStackPtrs();
-    }
-    END_TASK(1);
+        BEGIN_TASK(1)
+        if (globalId == 0)
+        {
+            InitStackPtrs();
+        }
+        END_TASK(1);
 
     BEGIN_TASK(RoundUpQuotient(maxInternalNodeCount, BUILD_THREADGROUP_SIZE));
     ClearStackPtrs(globalId, maxInternalNodeCount, ShaderRootConstants.NumThreads());
@@ -417,13 +416,6 @@ void CollapseScratchBvh(
     BEGIN_TASK(RoundUpQuotient(numThreads, BUILD_THREADGROUP_SIZE));
     Gfx12::CollapseScratchBvhImpl(globalId, localId, numActivePrims);
     END_TASK(RoundUpQuotient(numThreads, BUILD_THREADGROUP_SIZE));
-
-    if (globalId == 0)
-    {
-        // Clear Task Buffers
-        TASK_COUNTER_BUFFER.Store<uint>(TASK_COUNTER_OFFSET, 0);
-        TASK_COUNTER_BUFFER.Store<uint>(NUM_TASKS_DONE_OFFSET, 0);
-    }
 #endif
 }
 #endif

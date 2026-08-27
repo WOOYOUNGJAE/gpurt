@@ -1189,7 +1189,8 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     uint32 obbRefitStack = 0;
     uint32 qbvhObbFlags = 0;
     uint32 qbvhKdops = 0;
-    uint32 scratchWideNodeCounter = 0;
+    uint32 scratchWideNodeCounter = 0xFFFFFFFF;
+    uint32 wideNodeEncodingDoneCounter = 0xFFFFFFFF;
 #endif
 
     // ============ TaskLoopCounters ============
@@ -1328,8 +1329,11 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
 #endif
         if (m_buildConfig.enableWideNodeMerging)
         {
-            static constexpr size_t RayTracingScratchWideNodeSize = 64;
+            // Counter offsets must be assigned consecutively.
             scratchWideNodeCounter = ReserveBytes(sizeof(uint32), &runningOffset);
+            wideNodeEncodingDoneCounter = ReserveBytes(sizeof(uint32), &runningOffset);
+
+            static constexpr size_t RayTracingScratchWideNodeSize = 64;
             bvhWideNodeData = ReserveBytes(nodeCount * RayTracingScratchWideNodeSize, &runningOffset);
         }
     }
@@ -1544,6 +1548,7 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
         pOffsets->bvhLeafNodeData = bvhLeafNodeData;
         pOffsets->scratchWideNodeCounter = scratchWideNodeCounter;
         pOffsets->bvhWideNodeData = bvhWideNodeData;
+        pOffsets->wideNodeEncodingDoneCounter = wideNodeEncodingDoneCounter;
         pOffsets->clusterList0 = clustersList0;
         pOffsets->clusterList1 = clustersList1;
         pOffsets->neighborIndices = neighbourIndices;
@@ -2637,6 +2642,13 @@ void BvhBuilder::InitAccelerationStructure()
 
     ResetTaskQueueCounters(m_scratchOffsets.rebraidTaskQueueCounter);
     ResetTaskQueueCounters(m_scratchOffsets.plocTaskQueueCounter);
+
+    if (m_buildConfig.enableWideNodeMerging)
+    {
+        const uint numScratchWideNodeCounters = 2;
+        const gpusize wideNodeMergingOffset = ScratchBufferBaseVa() + m_scratchOffsets.scratchWideNodeCounter;
+        ZeroDataImmediate(wideNodeMergingOffset, numScratchWideNodeCounters);
+    }
 
     RGP_POP_MARKER();
 }
@@ -4569,7 +4581,9 @@ void BvhBuilder::CollapseScratchBvh()
     BindPipeline(InternalRayTracingCsType::CollapseScratchBvh);
 
     const uint32 nodeCount       = GetNumInternalNodeCount();
-    const uint32 numThreadGroups = GetNumPersistentThreadGroups(nodeCount, DefaultThreadGroupSize, 4U);
+    // const uint32 numThreadGroups = GetNumPersistentThreadGroups(nodeCount, DefaultThreadGroupSize, 4U);
+    const uint32 numThreadGroups = Util::RoundUpQuotient(nodeCount, DefaultThreadGroupSize);
+
 
     BuildShaderRootConstants0 shaderConstants =
     {
@@ -4583,11 +4597,6 @@ void BvhBuilder::CollapseScratchBvh()
     Dispatch(numThreadGroups);
     RGP_POP_MARKER();
 
-    // Reset the task counter in destination buffer. - not work
-    // Barrier();
-    // ResetTaskCounter(HeaderBufferBaseVa());
-    // Barrier();
-
     INTERNAL_TIMESTAMP_END();
 }
 
@@ -4597,7 +4606,8 @@ void BvhBuilder::EncodeScratchBvh()
     BindPipeline(InternalRayTracingCsType::EncodeScratchBvh);
 
     const uint32 nodeCount       = GetNumInternalNodeCount();
-    const uint32 numThreadGroups = GetNumPersistentThreadGroups(nodeCount, DefaultThreadGroupSize, 4U);
+    // const uint32 numThreadGroups = GetNumPersistentThreadGroups(nodeCount, DefaultThreadGroupSize, 4U);
+    const uint32 numThreadGroups = Util::RoundUpQuotient(nodeCount, DefaultThreadGroupSize);
 
     BuildShaderRootConstants0 shaderConstants =
     {
