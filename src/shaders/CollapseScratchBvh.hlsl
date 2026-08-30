@@ -193,7 +193,6 @@ static void PullUpChildNode(
     GPU_ASSERT(numBoxChildren + numLeafChildren > 0 && numBoxChildren + numLeafChildren <= 8);
     if (laneGroup.IsFirstLane())
     {
-        IncrementAccelStructHeaderField(ACCEL_STRUCT_HEADER_NUM_INTERNAL_FP32_NODES_OFFSET, numBoxChildren);
         const uint stackPtrOffset = ShaderConstants.offsets.qbvhGlobalStackPtrs;
         ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_SRC_PTR_OFFSET, numBoxChildren, dstStackBaseIndex);
     }

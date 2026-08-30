@@ -1066,6 +1066,7 @@ static void EncodeCompressedBoxNode(
 
     if (laneGroup.IsFirstLane())
     {
+        IncrementAccelStructHeaderField(ACCEL_STRUCT_HEADER_NUM_INTERNAL_FP32_NODES_OFFSET, 1);
         const uint numInlinePrimStructs = 0;
         // This code assumes STACK_PTRS_SRC_PTR_OFFSET and STACK_PTRS_DST_PTR_OFFSET are in consecutive
         // DWORDs.
