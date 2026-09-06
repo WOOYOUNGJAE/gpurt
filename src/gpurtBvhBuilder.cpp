@@ -1970,11 +1970,6 @@ void BvhBuilder::InitBuildConfig(
         m_buildConfig.shouldUseTrivialBuilder == false &&
         ((m_buildConfig.topLevelBuild == true && (m_deviceSettings.wideNodeMergingFlags & static_cast<uint32>(GpuRt::WideNodeMergingFlags::TLAS))) ||
         (m_buildConfig.topLevelBuild == false && (m_deviceSettings.wideNodeMergingFlags & static_cast<uint32>(GpuRt::WideNodeMergingFlags::BLAS))));
-            
-    if (m_buildConfig.enableWideNodeMerging)
-    {
-        m_buildConfig.enableOrientedBoundingBoxes = 0;
-    }
 
     // Max geometries we can fit in the SRD table for merged encode buiping ld/update
     const uint32 maxDescriptorTableSize = (m_cmdBuffer != nullptr) ?
@@ -4025,8 +4020,7 @@ BuildPhaseFlags BvhBuilder::EnabledPhases() const
                 flags |= BuildPhaseFlags::RadixSort;
             }
 
-            if ((m_buildConfig.buildMode == BvhBuildMode::Linear)
-                )
+            if ((m_buildConfig.buildMode == BvhBuildMode::Linear))
             {
                 flags |= BuildPhaseFlags::BuildFastAgglomerativeLbvh;
             }

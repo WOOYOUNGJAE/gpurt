@@ -52,6 +52,7 @@ set(gpurtHlsl
     TaskQueueCounter.hlsl
     EncodeHwBvhCommon.hlsl
 #if GPURT_BUILD_RTIP3_1
+    EncodeHwBvhCommon3_1.hlsl
     EncodeHwBvh3_1.hlsl
     CollapseScratchBvh.hlsl
     EncodeScratchBvh.hlsl
