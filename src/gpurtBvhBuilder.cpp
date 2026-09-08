@@ -1193,6 +1193,10 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
     uint32 wideNodeEncodingDoneCounter = 0xFFFFFFFF;
 #endif
 
+#if SOGANG_EXPERIMENT
+    uint32 sgDebugCounters = 0xFFFFFFFF;
+#endif
+
     // ============ TaskLoopCounters ============
     {
         encodeTaskCounter = ReserveBytes(sizeof(EncodeTaskCountersBuild), &runningOffset);
@@ -1336,6 +1340,9 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
             static constexpr size_t RayTracingScratchWideNodeSize = 64;
             bvhWideNodeData = ReserveBytes(nodeCount * RayTracingScratchWideNodeSize, &runningOffset);
         }
+#if SOGANG_EXPERIMENT
+        sgDebugCounters = ReserveBytes(sizeof(uint32) * 8, &runningOffset);
+#endif
     }
     qbvhPhaseMaxSize = runningOffset;
 
@@ -1585,6 +1592,9 @@ BvhBuilder::ScratchBufferInfo BvhBuilder::CalculateScratchBufferInfoDefault(
 #if GPURT_BUILD_RTIP3_1
         pOffsets->primCompNodeIndices    = primCompNodeIndices;
         pOffsets->primCompNodeIndicesEnd = primCompNodeIndicesEnd;
+#endif
+#if SOGANG_EXPERIMENT
+        pOffsets->sgDebugCounters = sgDebugCounters;
 #endif
     }
 

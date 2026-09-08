@@ -96,6 +96,12 @@ struct RayTracingScratchDataOffsets
     uint32 taskLoopCounters;
     uint32 debugCounters;
     uint32 primRefCount;
+#if SOGANG_EXPERIMENT
+    uint32 sgDebugCounters;
+    uint32 reserved9;
+    uint32 reserved10;
+    uint32 reserved11;
+#endif
 };
 
 struct BuildShaderConstants

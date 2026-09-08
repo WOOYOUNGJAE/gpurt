@@ -855,6 +855,9 @@ void BvhBatcher::DispatchInitAccelerationStructure(
                     .isIndirectBuild                      = builder.m_buildSettings.isIndirectBuild,
                     .dynamicallyIncrementsPrimRefCount    = dynamicallyIncrementsPrimRefCount ? 1u : 0u,
                     .scratchWideNodeCountersOffset        = builder.m_scratchOffsets.scratchWideNodeCounter,
+#if SOGANG_EXPERIMENT
+                    .sgDebugCountersScratchOffset         = builder.m_scratchOffsets.sgDebugCounters,
+#endif
                     .header                               = builder.InitAccelStructHeader(),
                     .metadataHeader                       = builder.InitAccelStructMetadataHeader(),
                 };

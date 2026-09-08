@@ -59,7 +59,11 @@ struct Constants
     uint isIndirectBuild;
     uint dynamicallyIncrementsPrimRefCount;
     uint scratchWideNodeCountersOffset;
+#if SOGANG_EXPERIMENT
+    uint sgDebugCountersScratchOffset;
+#else
     uint padding0;
+#endif
 
     AccelStructHeader header;
     AccelStructMetadataHeader metadataHeader;
@@ -193,6 +197,10 @@ void InitAccelerationStructure(
         const uint numScratchWideNodeCounters = 2;
         ResetCounters(ScratchGlobal, BuilderConstants.scratchWideNodeCountersOffset, numScratchWideNodeCounters);
     }
+
+#if SOGANG_EXPERIMENT
+    ResetCounters(ScratchGlobal, BuilderConstants.sgDebugCountersScratchOffset, 4);
+#endif
 
     HeaderBuffer.Store<AccelStructMetadataHeader>(0, BuilderConstants.metadataHeader);
     HeaderBuffer.Store<AccelStructHeader>(BuilderConstants.header.metadataSizeInBytes, BuilderConstants.header);
