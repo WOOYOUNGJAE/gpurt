@@ -184,8 +184,11 @@ namespace InitAccelerationStructure
         uint32 isIndirectBuild;
         uint32 dynamicallyIncrementsPrimRefCount;
         uint32 padding0;
+#if SOGANG_EXPERIMENT
+        uint32 sgDebugCountersScratchOffset;
+#else
         uint32 padding1;
-
+#endif
         AccelStructHeader header;
         AccelStructMetadataHeader metadataHeader;
     };
