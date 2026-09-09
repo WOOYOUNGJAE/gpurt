@@ -668,6 +668,28 @@ void RefitOrientedBounds(
     in uint globalId : SV_DispatchThreadID,
     in uint localId  : SV_GroupThreadID)
 {
+#if SOGANG_EXPERIMENT && GPURT_ENABLE_GPU_DEBUG
+    if (globalId == 0)
+    {
+        uint numPrims = DstBuffer.Load(ACCEL_STRUCT_HEADER_NUM_PRIMS_OFFSET);
+        uint numActivePrims = DstBuffer.Load(ACCEL_STRUCT_HEADER_NUM_ACTIVE_PRIMS_OFFSET);
+        uint numDescs = DstBuffer.Load(ACCEL_STRUCT_HEADER_NUM_DESCS_OFFSET);
+        uint numInternal32Nodes = DstBuffer.Load(ACCEL_STRUCT_HEADER_NUM_INTERNAL_FP32_NODES_OFFSET);
+        uint numInternal16Nodes = DstBuffer.Load(ACCEL_STRUCT_HEADER_NUM_INTERNAL_FP16_NODES_OFFSET);
+        uint numLeafNodes = DstBuffer.Load(ACCEL_STRUCT_HEADER_NUM_LEAF_NODES_OFFSET);
+
+        // uint numMergedCounts[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+        // for (uint i = 0; i < 8; i++)
+        // {
+        //     numMergedCounts[i] = ScratchGlobal.Load(ShaderConstants.offsets.sgDebugCounters + i * sizeof(uint));
+        // }
+        // GPU_DPF("mergedCounts= %u, %u, %u, %u, %u, %u, %u, %u",
+        //         numMergedCounts[0], numMergedCounts[1], numMergedCounts[2], numMergedCounts[3],
+        //         numMergedCounts[4], numMergedCounts[5], numMergedCounts[6], numMergedCounts[7]);
+        GPU_DPF("numPrims= %u, numActivePrims= %u, numInternal32Nodes= %u, numLeafNodes= %u",
+                numPrims, numActivePrims, numInternal32Nodes, numLeafNodes);            
+    }
+#endif
 #if GPURT_BUILD_RTIP3_1
     const uint obbRefitBatchCount = ScratchGlobal.Load(
         ShaderConstants.offsets.obbRefitStackPtrs + STACK_PTRS_OBB_REFIT_BATCH_COUNT);

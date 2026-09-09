@@ -17,13 +17,12 @@ struct ScratchWideNode
     uint   scratchIndex;
 
     float3 bbox_max;
-    uint   packedFlags; // flags [0:7], instanceMask [8:15], quadSwizzle [16:23]
-                        // Triangle OBB matrix index [0:7] for primitive nodes (not supported)
-                        // unused [16:31] for internal nodes
-                        // leader mask of child nodes [9:16] for internal nodes (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
-                        // whether this node is the leader box node [8] for internal nodes
-                        // Number of leaf children [4:7] for internal nodes
-                        // Number of box children [0:3] for internal nodes
+    uint   packedFlags; // unused [25:31]
+                        // best OBB matrix index [17:24] for leaf only box nodes.
+                        // leader mask of child nodes [9:16] (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
+                        // whether this node is the leader box node [8]
+                        // Number of leaf children [4:7]
+                        // Number of box children [0:3]
 };
 
 #define SCRATCH_WIDE_NODE_CHILDREN0_OR_LEAF_SCRATCH_INDEX_OFFSET 0

@@ -25,6 +25,7 @@
 #ifndef _ENCODE_SCRATCH_BVH_HLSL
 #define _ENCODE_SCRATCH_BVH_HLSL
 #define USE_LDS_CHILDREN 1 // this is default setting
+#define MERGE_CONSIDERING_DOBB 1
 #if NO_SHADER_ENTRYPOINT == 0
 //=====================================================================================================================
 #include "../shadersClean/common/ShaderDefs.hlsli"
@@ -165,14 +166,227 @@ static uint3 ComputePackedChildInfo(
     return childInfo;
 }
 
+//=====================================================================================================================
+// Skip merging if ((non-merged children OBB SA Sum) * obbPenalty) < (merged children OBB SA Sum).
+// In the current Greedy Top-Down collapsing algorithm, a box node can have empty
+// slots only when all of its children are leaves. Therefore, merging is guaranteed
+// to occur only between leaf-only boxes. This function relies on that assumption;
+// if the collapsing algorithm changes, this implementation should be revisited accordingly.
+static bool ShouldSkipMerge(
+    LaneGroup laneGroup,
+    in ScratchWideNode childWideNode,
+    in uint mergedCount,
+    in uint numPrimRefs,
+    in uint scratchNodesScratchOffset,
+    in uint targetLane,
+    in uint sourceLane,
+    in uint numLeavesInTarget,
+    in uint numLeavesInSource)
+{
+    if (mergedCount > 8)
+    {
+        return true;
+    }
+
+    bool shouldSkipMerge = false;
+#if MERGE_CONSIDERING_DOBB
+    const uint numCombinedLeaves = numLeavesInTarget + numLeavesInSource;
+    const bool isFromTarget      = laneGroup.laneIndex < numLeavesInTarget;
+    const bool isLeafSlot        = laneGroup.laneIndex < numCombinedLeaves;
+    const uint broadcastLane     = isFromTarget ? targetLane : sourceLane;
+
+    const uint4 c0 = laneGroup.Broadcast(childWideNode.children0WideNodeIndexOrLeafScratchIndex, broadcastLane);
+    const uint4 c1 = laneGroup.Broadcast(childWideNode.children1WideNodeIndexOrLeafScratchIndex, broadcastLane);
+
+    const uint childSlot = isFromTarget ? laneGroup.laneIndex : (laneGroup.laneIndex - numLeavesInTarget);
+    const uint leafScratchIndex = (childSlot < 4) ? c0[childSlot] : c1[childSlot - 4u];
+
+    const bool isValidLeaf = leafScratchIndex != 0xffffffff;
+
+    ScratchNode scratchLeaf;
+    if (isValidLeaf)
+    {
+        scratchLeaf = FetchScratchNode(scratchNodesScratchOffset, leafScratchIndex);
+    }
+    
+    const bool isOriginalLeaf = IsLeafNode(leafScratchIndex, numPrimRefs);
+    const float leafSA = isValidLeaf ?
+            GetScratchNodeSurfaceArea(scratchNodesScratchOffset, leafScratchIndex, scratchLeaf, numPrimRefs) : 0.0f;
+    const float leafSaMax = laneGroup.Max(leafSA);
+    const float maxLeafLane = laneGroup.GetFirstActiveLaneIndex(leafSA == leafSaMax);
+
+    // Get triangle data
+    TriangleData tri0 = (TriangleData)0;
+    TriangleData tri1 = (TriangleData)0;
+    const bool isQuadPrim =
+        Settings.enableEarlyPairCompression && IsScratchNodeQuadPrimitive(scratchLeaf);
+    const bool tri1Valid = isQuadPrim || (!isOriginalLeaf && CollapseAnyPairs());
+    if (isValidLeaf)
+    {
+        if (isQuadPrim)
+        {
+            tri0 = GetScratchNodeQuadVertices(scratchNodesScratchOffset, leafScratchIndex, 0);
+            tri1 = GetScratchNodeQuadVertices(scratchNodesScratchOffset, leafScratchIndex, 1);
+        }
+        else if (isOriginalLeaf == false)
+        {
+            uint firstNodeIndex;
+            ScratchNode scratchNodeTri0;
+
+            uint secondNodeIndex;
+            ScratchNode scratchNodeTri1;
+
+            if (UsePrimIndicesArray())
+            {
+                // Not Support yet
+                GPU_ASSERT(false);
+            }
+            else if (CollapseAnyPairs())
+            {
+                firstNodeIndex = scratchLeaf.left_or_primIndex_or_instIndex;
+                scratchNodeTri0 = FetchScratchNode(scratchNodesScratchOffset, firstNodeIndex);
+
+                secondNodeIndex = scratchLeaf.right_or_geometryIndex;
+                scratchNodeTri1 = FetchScratchNode(scratchNodesScratchOffset, secondNodeIndex);
+            }
+            else
+            {
+                // Not Support yet
+                GPU_ASSERT(false);
+                firstNodeIndex = scratchLeaf.left_or_primIndex_or_instIndex;
+                scratchNodeTri0 = FetchScratchNode(scratchNodesScratchOffset, firstNodeIndex);
+
+                secondNodeIndex = scratchNodeTri0.parent;
+                scratchNodeTri1 = FetchScratchNode(scratchNodesScratchOffset, secondNodeIndex);
+            }
+
+            tri0.v0 = scratchNodeTri0.bbox_min_or_v0;
+            tri0.v1 = scratchNodeTri0.bbox_max_or_v1;
+            tri0.v2 = scratchNodeTri0.sah_or_v2_or_instBasePtr;
+            tri1.v0 = scratchNodeTri1.bbox_min_or_v0;
+            tri1.v1 = scratchNodeTri1.bbox_max_or_v1;
+            tri1.v2 = scratchNodeTri1.sah_or_v2_or_instBasePtr;
+        }
+        else // single triangle leaf
+        {
+            tri0.v0 = scratchLeaf.bbox_min_or_v0;
+            tri0.v1 = scratchLeaf.bbox_max_or_v1;
+            tri0.v2 = scratchLeaf.sah_or_v2_or_instBasePtr;
+        }
+    }
+
+    // const uint k
+    const uint laneObbMatrixIndex = ExtractScratchNodeObbMatrixIdx(scratchLeaf.packedFlags);
+    uint obbMatrixIndex = laneGroup.Broadcast(laneObbMatrixIndex, maxLeafLane);
+    
+    BoundingBox obb = InvalidBoundingBox;
+    float mergedSa = 0.0f;
+    if (isValidLeaf)
+    {
+        if (obbMatrixIndex != INVALID_OBB)
+        {
+            const float3x3 obbMatrix = OBBIndexToMatrix(obbMatrixIndex);
+            BoundingBox tri0Obb = ComputeOBBFromTri(tri0.v0, tri0.v1, tri0.v2, obbMatrix);
+            obb = CombineAABB(obb, tri0Obb);
+            if (tri1Valid)
+            {
+                BoundingBox tri1Obb = ComputeOBBFromTri(tri1.v0, tri1.v1, tri1.v2, obbMatrix);
+                obb = CombineAABB(obb, tri1Obb);
+            }
+            mergedSa = ComputeBoxSurfaceArea(obb);
+        }
+        else
+        {
+            mergedSa = leafSA;
+        }
+    }
+    const float mergedSaSum = laneGroup.Sum(mergedSa);
+
+    float targetSideSa = 0.0f;
+    float targetSideSaSum = 0.0f;
+    float sourceSideSa = 0.0f;
+    float sourceSideSaSum = 0.0f;
+    // target side
+    {
+        const uint laneInTarget = 0;
+        obbMatrixIndex = laneGroup.Broadcast(laneObbMatrixIndex, laneInTarget);
+
+        if (isValidLeaf && isFromTarget)
+        {
+            if (obbMatrixIndex != INVALID_OBB)
+            {
+                const float3x3 obbMatrix = OBBIndexToMatrix(obbMatrixIndex);
+                obb = InvalidBoundingBox;
+                BoundingBox tri0Obb = ComputeOBBFromTri(tri0.v0, tri0.v1, tri0.v2, obbMatrix);
+                obb = CombineAABB(obb, tri0Obb);
+                if (tri1Valid)
+                {
+                    BoundingBox tri1Obb = ComputeOBBFromTri(tri1.v0, tri1.v1, tri1.v2, obbMatrix);
+                    obb = CombineAABB(obb, tri1Obb);
+                }
+                targetSideSa = ComputeBoxSurfaceArea(obb);
+            }
+            else
+            {
+                targetSideSa = leafSA;
+            }
+        }
+        targetSideSaSum = laneGroup.Sum(targetSideSa);
+    }
+
+    // source side
+    {
+        const uint laneInSource = numLeavesInTarget;
+        obbMatrixIndex = laneGroup.Broadcast(laneObbMatrixIndex, laneInSource);
+
+        if (isValidLeaf && !isFromTarget)
+        {
+            if (obbMatrixIndex != INVALID_OBB)
+            {
+                const float3x3 obbMatrix = OBBIndexToMatrix(obbMatrixIndex);
+                obb = InvalidBoundingBox;
+                BoundingBox tri0Obb = ComputeOBBFromTri(tri0.v0, tri0.v1, tri0.v2, obbMatrix);
+                obb = CombineAABB(obb, tri0Obb);
+                if (tri1Valid)
+                {
+                    BoundingBox tri1Obb = ComputeOBBFromTri(tri1.v0, tri1.v1, tri1.v2, obbMatrix);
+                    obb = CombineAABB(obb, tri1Obb);
+                }
+                sourceSideSa = ComputeBoxSurfaceArea(obb);
+            }
+            else
+            {
+                sourceSideSa = leafSA;
+            }
+        }
+        sourceSideSaSum = laneGroup.Sum(sourceSideSa);
+    }
+
+    GPU_ASSERT(targetSideSaSum > 0.0f && sourceSideSaSum > 0.0f);
+    float unmergedSaSum = targetSideSaSum + sourceSideSaSum;
+
+#if SOGANG_EXPERIMENT
+    const float obbPenalty = Settings.experimentFloat0;
+    // ScratchGlobal.InterlockedMax(ShaderConstants.offsets.sgDebugCounters, (unmergedSaSum / mergedSaSum));
+#else
+    const float obbPenalty = 1.67f;
+#endif
+    // unmerged dobb is better.
+    shouldSkipMerge = unmergedSaSum * obbPenalty < mergedSaSum;
+
+#endif // MERGE_CONSIDERING_DOBB
+    return shouldSkipMerge;
+}
 
 //=====================================================================================================================
 // Consecutive greedy merging method from "Memory-Efficient BVH" (HPG 2026)
 static bool MergeBoxNodes(
     LaneGroup                laneGroup,
     in    uint               laneGroupIndex,
-    in    uint               childWideScratchIndex,
     in    uint               scratchNodesScratchOffset,
+    in    uint               scratchWideNodesScratchOffset,
+    in    uint               childWideScratchIndex,
+    in    uint               numPrimRefs,
     in    bool               childIsBox)
 {
     bool isMergedLane = false;
@@ -184,7 +398,7 @@ static bool MergeBoxNodes(
     ScratchWideNode childNode;
     if (childIsBox)
     {
-        childNode = FetchScratchWideNode(scratchNodesScratchOffset, childWideScratchIndex);
+        childNode = FetchScratchWideNode(scratchWideNodesScratchOffset, childWideScratchIndex);
     }
     else
     {
@@ -203,6 +417,7 @@ static bool MergeBoxNodes(
     uint mergedCount = numBoxesInTarget + numLeavesInTarget;
     uint remaining = childBoxMask & ~(1u << targetLane);
 
+    uint numMergedNodesToCurLeader = 0; // for debugging
     // Lanegroup broadcast is safe because all lanes are active
     while (remaining)
     {
@@ -212,19 +427,38 @@ static bool MergeBoxNodes(
         uint numBoxesInSource  = laneGroup.Broadcast(numBoxesInChild, sourceLane);
         uint numLeavesInSource = laneGroup.Broadcast(numLeavesInChild, sourceLane);
         mergedCount += (numBoxesInSource + numLeavesInSource);
+
+        // bool shouldSkipMerge = ShouldSkipMerge(laneGroup, scratchNodesScratchOffset, targetLane, sourceLane, numLeavesInTarget, numLeavesInSource);
         // Try Merge
-        if (mergedCount > 8)
+        const bool shouldSkipMerge = ShouldSkipMerge(laneGroup,
+                                                    childNode,
+                                                    mergedCount,
+                                                    numPrimRefs,
+                                                    scratchNodesScratchOffset,
+                                                    targetLane,
+                                                    sourceLane,
+                                                    numLeavesInTarget,
+                                                    numLeavesInSource);
+        if (shouldSkipMerge)
         {
             // Complete current target's merging. re-target to next lane
             targetLane = sourceLane;
             numBoxesInTarget = numBoxesInSource;
             numLeavesInTarget = numLeavesInSource;
             mergedCount = numBoxesInTarget + numLeavesInTarget;
+#if SOGANG_EXPERIMENT
+            if (numMergedNodesToCurLeader > 0)
+            {
+                const uint sgDebugCountersOffset = ShaderConstants.offsets.sgDebugCounters;
+                ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + numMergedNodesToCurLeader * sizeof(uint), 1);
+            }
+            numMergedNodesToCurLeader = 0;
+#endif
         }
         else
         {
             // Merge success
-            // Merge phase 0: Initial Stauts
+            // Merge phase 0: Initial Status
             // Shared: [-, -, -, -, -, -, -, -]
             // Target: [B, B, B, L, L, -, -, -]
             // Source: [B, B, L, -, -, -, -, -]
@@ -300,6 +534,14 @@ static bool MergeBoxNodes(
                 // child count
                 childNode.packedFlags = bitFieldInsert(childNode.packedFlags, 0, 4, numBoxesInTarget + numBoxesInSource);
                 childNode.packedFlags = bitFieldInsert(childNode.packedFlags, 4, 4, numLeavesInTarget + numLeavesInSource);
+#if SOGANG_EXPERIMENT
+                numMergedNodesToCurLeader++;
+                if (numBoxesInSource > 0)
+                {
+                    const uint sgDebugCountersOffset = ShaderConstants.offsets.sgDebugCounters;
+                    ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + 0, 1);
+                }
+#endif
             }
             
             numBoxesInTarget  += numBoxesInSource;
@@ -313,7 +555,15 @@ static bool MergeBoxNodes(
         }
         remaining &= ~(1u << sourceLane);
     }
-
+#if SOGANG_EXPERIMENT
+    // Flush the last leader group's count, which the loop above never flushes
+    // because it only flushes on overflow (re-target), not on normal loop exit.
+    if (numMergedNodesToCurLeader > 0)
+    {
+        const uint sgDebugCountersOffset = ShaderConstants.offsets.sgDebugCounters;
+        ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + numMergedNodesToCurLeader * sizeof(uint), 1);
+    }
+#endif
 
     // Clear the leaf bit in the mask.
     leaderNodeMask &= childBoxMask;
@@ -326,18 +576,19 @@ static bool MergeBoxNodes(
         const bool isLeaderLane = (leaderNodeMask & (1u << laneGroup.laneIndex)) != 0;
         if (isLeaderLane)
         {
-            WriteScratchWideNode(scratchNodesScratchOffset, childWideScratchIndex, childNode);
+            WriteScratchWideNode(scratchWideNodesScratchOffset, childWideScratchIndex, childNode);
         }
         else
         {
             // Update Flags - mark as 0 to indicate this is not a leader node.
             // const uint packedFlags = bitFieldInsert(childNode.packedFlags, 8, 1, 0);
             const uint packedFlags = 0;
-            WriteScratchWideNodeData(scratchNodesScratchOffset, childWideScratchIndex, SCRATCH_WIDE_NODE_FLAGS_OFFSET, packedFlags);
+            WriteScratchWideNodeData(scratchWideNodesScratchOffset, childWideScratchIndex, SCRATCH_WIDE_NODE_FLAGS_OFFSET, packedFlags);
         }
     }
     return isMergedLane;
 }
+
 //=====================================================================================================================
 static bool MergeBoxOnlyNodes(
     LaneGroup                laneGroup,
@@ -574,7 +825,13 @@ static void EncodeCompressedBoxNode(
 
     uint boxOrLeafChildIndex = childIsBox ? laneGroup.laneIndex : laneGroup.laneIndex - numBoxChildren;
 
-    bool isMerged = MergeBoxNodes(laneGroup, laneGroupIndex, childWideScratchIndex, scratchWideNodesScratchOffset, childIsBox);
+    bool isMerged = MergeBoxNodes(laneGroup,
+                                  laneGroupIndex,
+                                  scratchNodesScratchOffset,
+                                  scratchWideNodesScratchOffset,
+                                  childWideScratchIndex,
+                                  numPrimRefs,
+                                  childIsBox);
     const bool isLeaderBoxChild = childIsBox && !isMerged;
     const bool isMergedBoxChild = childIsBox && isMerged;
 
@@ -885,8 +1142,7 @@ void EncodeScratchBvhImpl(
     uint globalId,
     uint localId,
     uint numPrimRefs,
-    uint numScratchWideNodes
-    )
+    uint numScratchWideNodes)
 {
     GPU_ASSERT(EnableWaveLeafCompressionPass());
     const AccelStructOffsets offsets = ShaderConstants.header.offsets;
@@ -1096,6 +1352,9 @@ void EncodeScratchBvh(
                                 obbRefitGroupCount);
 
             GPU_DPF("numObbRefitBatches: %u, numObbRefitGroups: %u", obbRefitBatchCount, obbRefitGroupCount);
+            
+            const float saMergeEfficiencyMax = ScratchGlobal.Load(ShaderConstants.offsets.sgDebugCounters + 0);
+            GPU_DPF("saMergeEfficiency * 1,000: %u", uint(saMergeEfficiencyMax * 1000.0f));
         }
     }
 
@@ -1110,4 +1369,5 @@ void EncodeScratchBvh(
 #endif
 
 #undef USE_LDS_CHILDREN
+#undef MERGE_CONSIDERING_DOBB
 #endif
