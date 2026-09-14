@@ -5,25 +5,24 @@
 
 #if NO_SHADER_ENTRYPOINT == 0
 //=====================================================================================================================
-#include "../shadersClean/common/ShaderDefs.hlsli"
+#include "../../shadersClean/common/ShaderDefs.hlsli"
 
 
 #define GC_DSTBUFFER
 #define GC_DSTMETADATA
 #define GC_SCRATCHBUFFER
-#include "../shadersClean/build/BuildRootSignature.hlsli"
+#include "../../shadersClean/build/BuildRootSignature.hlsli"
 
 #define TASK_COUNTER_BUFFER   ScratchGlobal
 #define TASK_COUNTER_OFFSET   (ShaderConstants.offsets.taskLoopCounters + TASK_LOOP_QBVH_COUNTER_OFFSET)
 #define NUM_TASKS_DONE_OFFSET (ShaderConstants.offsets.taskLoopCounters + TASK_LOOP_QBVH_TASKS_DONE_OFFSET)
-#include "TaskMacros.hlsl"
+#include "../TaskMacros.hlsl"
 
 template<typename T>
 T LoadInstanceDescBuffer(uint offset)
 {
     return InstanceDescBuffer.Load<T>(offset);
 }
-#include "IndirectArgBufferUtils.hlsl"
 
 #define MAX_ELEMENTS_PER_THREAD 8 // 0: for task macro, 
 #define MAX_LDS_ELEMENTS_PER_THREADGROUP (MAX_ELEMENTS_PER_THREAD * BUILD_THREADGROUP_SIZE)
@@ -48,18 +47,15 @@ struct LaneSharedData
 };
 groupshared LaneSharedData LaneGroupShared[NUM_LANE_GROUPS][LANE_GROUP_SIZE];
 
-#include "../shadersClean/build/BuildCommonScratch.hlsli"
+#include "../../shadersClean/build/BuildCommonScratch.hlsli"
 #endif
 
 #if GPURT_BUILD_RTIP3_1
 
-#include "rtip3_1.hlsli"
-#include "EncodeHwBvhCommon.hlsl"
-#include "QBVH8Common.hlsl"
-#include "../shadersClean/common/LaneGroup.hlsli"
-#include "PrimitiveStructureEncoder3_1.hlsl"
-#include "OrientedBoundingBoxes.hlsl"
-#include "../shadersClean/common/ScratchWideNode.hlsli"
+#include "../EncodeHwBvhCommon.hlsl"
+#include "../../shadersClean/common/LaneGroup.hlsli"
+#include "../OrientedBoundingBoxes.hlsl"
+#include "../../shadersClean/common/ScratchWideNode.hlsli"
 
 namespace Gfx12
 {

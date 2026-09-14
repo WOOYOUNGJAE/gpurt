@@ -25,27 +25,27 @@
 #ifndef _ENCODE_SCRATCH_BVH_HLSL
 #define _ENCODE_SCRATCH_BVH_HLSL
 #define USE_LDS_CHILDREN 1 // this is default setting
-#define MERGE_CONSIDERING_DOBB 1
+#define MERGE_CONSIDERING_DOBB 0
 #if NO_SHADER_ENTRYPOINT == 0
 //=====================================================================================================================
-#include "../shadersClean/common/ShaderDefs.hlsli"
+#include "../../shadersClean/common/ShaderDefs.hlsli"
 
 #define GC_DSTBUFFER
 #define GC_DSTMETADATA
 #define GC_SCRATCHBUFFER
-#include "../shadersClean/build/BuildRootSignature.hlsli"
+#include "../../shadersClean/build/BuildRootSignature.hlsli"
 
 #define TASK_COUNTER_BUFFER   ScratchGlobal
 #define TASK_COUNTER_OFFSET   (ShaderConstants.offsets.taskLoopCounters + TASK_LOOP_WIDE_BVH_COUNTER_OFFSET)
 #define NUM_TASKS_DONE_OFFSET (ShaderConstants.offsets.taskLoopCounters + TASK_LOOP_WIDE_BVH_TASKS_DONE_OFFSET)
-#include "TaskMacros.hlsl"
+#include "../TaskMacros.hlsl"
 
 template<typename T>
 T LoadInstanceDescBuffer(uint offset)
 {
     return InstanceDescBuffer.Load<T>(offset);
 }
-#include "IndirectArgBufferUtils.hlsl"
+#include "../IndirectArgBufferUtils.hlsl"
 
 #define LANE_GROUP_SIZE 8
 #define MAX_ELEMENTS_PER_THREAD 8
@@ -69,13 +69,13 @@ void SetSharedChildren(uint laneGroupIndex, uint childIndex, uint value)
     SharedMem[laneGroupIndex * LANE_GROUP_SIZE + childIndex] = value;
 }
 
-#include "../shadersClean/build/BuildCommonScratch.hlsli"
+#include "../../shadersClean/build/BuildCommonScratch.hlsli"
 #endif
 
 #if GPURT_BUILD_RTIP3_1
 
-#include "EncodeHwBvhCommon3_1.hlsl"
-#include "../shadersClean/common/ScratchWideNode.hlsli"
+#include "../EncodeHwBvhCommon3_1.hlsl"
+#include "../../shadersClean/common/ScratchWideNode.hlsli"
 
 namespace Gfx12
 {
