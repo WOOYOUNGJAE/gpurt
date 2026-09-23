@@ -17,12 +17,16 @@ struct ScratchWideNode
     uint   scratchIndex;
 
     float3 bbox_max;
-    uint   packedFlags; // unused [25:31]
-                        // best OBB matrix index [17:24] for leaf only box nodes.
-                        // leader mask of child nodes [9:16] (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
-                        // whether this node is the leader box node [8]
-                        // Number of leaf children [4:7]
-                        // Number of box children [0:3]
+    // NOTE : "block" means the leader node containing the merged sibling's children.
+    uint   packedFlags; // unused [24:31]
+                        // offset in the block. [17:19] - for merged node
+                        //  If nodes are merged, the offset starts after the leaves merged from previous siblings.
+                        //  If this is 0, the node is either the leader child or a zero-leaf box.
+                        // num siblings merged into this node [17:19] - for leader node (not used)
+                        // leader mask of child nodes [9:16]
+                        // whether this node is the leader box node [8] (not used)
+                        // number of leaf children [4:7]
+                        // number of box children [0:3]
 };
 
 #define SCRATCH_WIDE_NODE_CHILDREN0_OR_LEAF_SCRATCH_INDEX_OFFSET 0

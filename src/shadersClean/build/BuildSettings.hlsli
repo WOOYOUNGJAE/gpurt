@@ -160,6 +160,9 @@ static const CompileTimeBuildSettings Settings = {
 #if SOGANG_EXPERIMENT
     experimentFloat0,
     experimentFloat1,
+#else
+    0,
+    0,
 #endif
     wideNodeMergingFlags,
 };

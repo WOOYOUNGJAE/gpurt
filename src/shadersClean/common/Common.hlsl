@@ -293,7 +293,7 @@ static bool NodeTypeIsBoxNode(
 #if GPURT_BUILD_RTIP3_1
     if (enableCompressedFormat)
     {
-        return (NodeTypeIsQuantizedBVH8BoxNode(nodeType));
+        return NodeTypeIsQuantizedBVH8BoxNode(nodeType);
     }
     else
 #endif

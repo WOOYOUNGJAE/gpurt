@@ -199,11 +199,7 @@ inline void QuantizedBVH8BoxNode::SetInternalNodeBaseOffset(uint internalNodeBas
 //=====================================================================================================================
 inline uint QuantizedBVH8BoxNode::OBBMatrixIndex()
 {
-#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
-    return obbMatrixIndex & 0x7f;
-#else
     return obbMatrixIndex;
-#endif
 }
 
 //=====================================================================================================================
@@ -270,11 +266,6 @@ inline void QuantizedBVH8BoxNode::SetExponents(uint3 exponents)
 //=====================================================================================================================
 inline bool QuantizedBVH8BoxNode::DisableBoxSort()
 {
-#if MERGE_BOX_NODES_FLAG_RTIP3_1 & 0
-    // The box sort disabled bit indicates that merged-node de-duplication is enabled instead of the default de-duplication method.
-    // However, this approach is not used in practice, as the increased de-duplication branch factor can cause divergence, resulting in degraded performance.
-    return (bitFieldExtract(packedData, 24, 1) != 0);
-#endif
     return false;
 }
 
@@ -560,17 +551,6 @@ inline void QuantizedBVH8BoxNode::Decode(
             {
                 childPointers[i] = internalOffset;
                 internalOffset += (childInfos[i].NodeRangeLength() << 4);
-#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
-                uint leaderMask = LeaderMask();
-                if (leaderMask == 0 || (leaderMask & (1u << i)) != 0)
-                {
-                    prevInternal = childPointers[i];
-                }
-                else
-                {
-                    childPointers[i] = prevInternal;
-                }
-#endif
             }
             else
             {

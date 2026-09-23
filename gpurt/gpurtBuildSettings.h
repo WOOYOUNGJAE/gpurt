@@ -167,6 +167,9 @@ struct CompileTimeBuildSettings
 #if SOGANG_EXPERIMENT
     float  experimentFloat0;
     float  experimentFloat1;
+#else
+    uint32 reserved16;
+    uint32 reserved17;
 #endif
     uint32 wideNodeMergingFlags;
 };

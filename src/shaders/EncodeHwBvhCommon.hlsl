@@ -89,7 +89,6 @@ static uint CreateBoxNodePointer(
     in uint nodeOffsetInBytes,
     in bool writeAsFp16BoxNode)
 {
-    // TODO : write as mergedBoxNode(4)
     uint nodeType = GetInternalNodeType();
     if ((nodeType == NODE_TYPE_BOX_FLOAT32) && writeAsFp16BoxNode)
     {

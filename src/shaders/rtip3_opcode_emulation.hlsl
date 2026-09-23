@@ -811,11 +811,7 @@ static QuantizedBVH8BoxNode FetchQuantizedBVH8BoxNode(
     result.parentPointer                              = d0.z;
     result.origin                                     = float3(asfloat(d0.w), asfloat(d1.xy));
     result.packedData                                 = d1.z;
-#if (MERGE_BOX_NODES_FLAG_RTIP3_1 == 1)
-    result.obbMatrixIndex                             = d1.w & 0xFFFF;
-#else
     result.obbMatrixIndex                             = d1.w & 0x7F;
-#endif
     result.childInfos[0].minXMinYAndCullingFlags      = d2.x;
     result.childInfos[0].minZMaxXAndInstanceMask      = d2.y;
     result.childInfos[0].maxYMaxZNodeTypeAndNodeRange = d2.z;

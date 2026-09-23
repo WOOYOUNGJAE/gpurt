@@ -34,9 +34,8 @@
 #ifndef _COMMON_HLSL
 #define _COMMON_HLSL
 
-// 0: Disable, 1: Enable without compaction, 2: Enable with compaction
-// Option 1 is available only in emulation
-#define MERGE_BOX_NODES_FLAG_RTIP3_1 2
+// 0: Disable, 1: Enable and disallow compaction for fast merged dobb, 2: Enable with compaction (incomplete DOBB)
+#define MERGE_BOX_NODES_FLAG 1
 
 #include "InstanceDesc.hlsli"
 #include "../../../gpurt/gpurtAccelStruct.h"

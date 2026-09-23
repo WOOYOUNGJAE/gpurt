@@ -54,6 +54,7 @@ set(gpurtHlsl
 #if GPURT_BUILD_RTIP3_1
     EncodeHwBvhCommon3_1.hlsl
     EncodeHwBvh3_1.hlsl
+    ScratchBvh/MergeScratchNodes.hlsli
     ScratchBvh/CollapseScratchBvh.hlsl
     ScratchBvh/EncodeScratchBvh.hlsl
     QBVH8Common.hlsl

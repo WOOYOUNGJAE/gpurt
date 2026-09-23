@@ -189,6 +189,10 @@ static void PullUpChildNode(
     GPU_ASSERT(numBoxChildren + numLeafChildren > 0 && numBoxChildren + numLeafChildren <= 8);
     if (laneGroup.IsFirstLane())
     {
+#if (MERGE_BOX_NODES_FLAG == 1)
+        // If MERGE_BOX_NODES_FLAG > 1, increment it in the EncodeScratch pass
+        IncrementAccelStructHeaderField(ACCEL_STRUCT_HEADER_NUM_INTERNAL_FP32_NODES_OFFSET, 1);
+#endif
         const uint stackPtrOffset = ShaderConstants.offsets.qbvhGlobalStackPtrs;
         ScratchGlobal.InterlockedAdd(stackPtrOffset + STACK_PTRS_SRC_PTR_OFFSET, numBoxChildren, dstStackBaseIndex);
     }
@@ -267,7 +271,7 @@ static void PullUpChildNode(
         uint packedFlags = 0;
         packedFlags = bitFieldInsert(packedFlags, 0, 4, numBoxChildren);
         packedFlags = bitFieldInsert(packedFlags, 4, 4, numLeafChildren);
-        packedFlags = bitFieldInsert(packedFlags, 8, 1, 1);
+        packedFlags = bitFieldInsert(packedFlags, 8, 8, bits(8));
         parentWideNode.packedFlags = packedFlags;
 
         ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.scratchWideNodeCounter, 1);
@@ -356,13 +360,13 @@ void CollapseScratchBvhImpl(
 
             // Pull up the nodes chosen by SAH to be the new children in BVH8
             PullUpChildNode(laneGroup,
-                          (globalStackIndex == 0),
-                          scratchNodesScratchOffset,
-                          scratchWideNodesScratchOffset,
-                          localId,
-                          bvhNodeSrcIdx,
-                          bvhNodeDstIdx,
-                          numPrimRefs);
+                            (globalStackIndex == 0),
+                            scratchNodesScratchOffset,
+                            scratchWideNodesScratchOffset,
+                            localId,
+                            bvhNodeSrcIdx,
+                            bvhNodeDstIdx,
+                            numPrimRefs);
 
             isGlobalStackEntryDone = true;
         }

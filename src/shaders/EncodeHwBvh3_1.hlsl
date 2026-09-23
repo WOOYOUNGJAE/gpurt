@@ -1338,16 +1338,17 @@ static void EncodeCompressedBoxNode(
                     ShaderConstants.offsets.obbRefitStack + (obbRefitStackIndex * sizeof(uint)), bvhNodeDstIdx);
             }
 
-            // OBB refit flags are packed as follows:
-            // b[0:3] : 2's complement of box child count. The maximum value can be 8. That requires 3 bits plus the sign
-            //          bit --> 4 bits. The maximum carry bits (for when box count is incremented by refit kernel)
-            //          is 1, but we have plenty more room.
-            // b[4:15] : 2's complement increment overflow bits.
-            // b[16:23]: Child index with maximum AABB surface area for this node.
-            // b[24:31]: OBB matrix index of the best leaf node amongst the children. This is precomputed and stored in
+            // OBB refit flags are packed as follows: (Rph Fixed)
+            // b[0:3]   : 2's complement of box child count. The maximum value can be 8. That requires 3 bits plus the sign
+            //           bit --> 4 bits. The maximum carry bits (for when box count is incremented by refit kernel)
+            //           is 1, but we have plenty more room in unused bits beside.
+            // b[4:13]  : 2's complement increment overflow bits
+            // b[14:21] : data for Merged DOBB
+            // b[22:24] : Child index with maximum AABB surface area for this node.
+            // b[25:31] : OBB matrix index of the best leaf node amongst the children. This is precomputed and stored in
             //           scratch node during morton code generation phase to absorb the VGPR impact of that computation.
-            const uint encodedBits = (bestObbMatrixIdx << 24u) |
-                                     (aabbMaxChildIdx  << 16u) |
+            const uint encodedBits = (bestObbMatrixIdx << 25u) |
+                                     (aabbMaxChildIdx  << 22u) |
                                      ((numBoxChildren ^ 0xFu) + 1);
 
             const uint obbFlagsOffset = ShaderConstants.offsets.qbvhObbFlags + (bvhNodeDstIdx * OBB_TABLE_ENTRY_SIZE);

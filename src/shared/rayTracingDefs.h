@@ -115,6 +115,11 @@ struct ObbKdop
 #define OBBKDOP_OBBMATRIX_INDEX_OFFSET 104
 #define OBBKDOP_SIZE 128
 
+#define OBB_FLAGS_BIT_OFFSET_NUM_BOX_CHILDREN 0u
+#define OBB_FLAGS_BIT_OFFSET_LEAF_START_MASK 14u
+#define OBB_FLAGS_BIT_OFFSET_AABB_MAX_CHILD_INDEX 22u
+#define OBB_FLAGS_BIT_OFFSET_OBB_MATRIX_INDEX 25u
+
 //=====================================================================================================================
 // The TLAS builder requires information about the root node and its 4 children
 #define BLAS_OBB_METADATA_NODE_COUNT 5
