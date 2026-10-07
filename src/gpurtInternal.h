@@ -674,6 +674,10 @@ public:
 
     uint32 GetRayHistoryLightCounterMask() const;
 
+    // Counter mode / mask written to DispatchRaysConstants for RDP ray history captures
+    uint32 GetRayHistoryCounterMode() const;
+    uint32 GetRayHistoryCounterMask() const;
+
     ClientPipelineHandle GetInternalPipeline(
         InternalRayTracingCsType        type,
         const CompileTimeBuildSettings& buildSettings,

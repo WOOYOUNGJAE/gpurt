@@ -124,4 +124,14 @@ static uint RtIp3LdsStackInit()
 #define RtIp3LdsStackInit   RtIp3LdsStackInit_emulation
 #endif
 
+//=====================================================================================================================
+// [SOGANG] Peak LDS stack occupancy of a ds_stack_push8_pop1() step, for the ray history max stack depth counter.
+// The packed stack address keeps the number of valid entries in [4:0] (see StackAddr in rtip3_ds_stack_emulation.hlsl),
+// saturating at the 16-entry stack. The instruction pops right after pushing, so the popped entry is added back; the
+// pop returns INVALID_NODE/TERMINAL_NODE only when the stack is empty.
+static uint GetStackDepthAfterPush8Pop1(in uint packedStackAddr, in uint poppedNodePtr)
+{
+    return (packedStackAddr & 0x1f) + (((poppedNodePtr >> 3) != 0x1fffffff) ? 1 : 0);
+}
+
 #endif

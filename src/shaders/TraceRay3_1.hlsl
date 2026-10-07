@@ -399,6 +399,14 @@ static IntersectionResult TraceRayImpl3_1(
         nodePtr = ds_stack_push8_pop1(stackAddr, lastNodePtr, result.slot0, result.slot1, GPURT_RTIP3_1);
         lastNodePtr = INVALID_NODE;
 
+#if DEVELOPER
+        if (EnableTraversalCounter())
+        {
+            // [SOGANG] Max stack depth for the ray history traversal counter
+            iResult.maxStackDepth = max(iResult.maxStackDepth, GetStackDepthAfterPush8Pop1(stackAddr, nodePtr));
+        }
+#endif
+
 #if GPURT_ENABLE_GPU_DEBUG
         // Check if the node pointer popped from stack is valid.
         OutOfRangeNodePointerAssert(GPURT_RTIP3_1,

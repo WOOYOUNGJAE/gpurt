@@ -926,6 +926,21 @@ static void RayHistorySetMaxStackDepth(inout_param(_AmdSystemData) data, uint st
 #endif
 }
 
+#if GPURT_BUILD_RTIP3_1
+//=====================================================================================================================
+// [SOGANG] RTIP3.x version of RayHistorySetMaxStackDepth(). The RTIP3.x stack address is packed, so the caller passes
+// the stack depth decoded by GetStackDepthAfterPush8Pop1() (rtip3_ops.hlsl).
+static void RayHistorySetMaxStackDepth3_1(inout_param(_AmdSystemData) data, uint stackDepth)
+{
+#if DEVELOPER
+    if (EnableTraversalCounter())
+    {
+        data.counter.maxStackDepth = max(data.counter.maxStackDepth, stackDepth);
+    }
+#endif
+}
+#endif
+
 //=====================================================================================================================
 static void RayHistoryIncInstanceIntersections(inout_param(_AmdSystemData) data)
 {
@@ -1484,7 +1499,9 @@ export void _cont_TraceRay(
 
     RayHistorySetParentId(dispatch, parentId);  // restore parentId
 
-    TraversalCounterWriteCounter(data);
+    // [SOGANG] _AmdAwaitTraversal() only returns _AmdDispatchSystemData, so data.counter here still holds the
+    // pre-traversal values (all zero). The counters are now written from EnqueueHitMiss() instead.
+    // TraversalCounterWriteCounter(data);
 }
 
 //=====================================================================================================================
@@ -1537,6 +1554,9 @@ static void EnqueueHitMiss(_AmdSystemData data, Vpc32 nextShaderAddr, uint32_t n
     GPU_ASSERT(nextShaderAddr.GetU32() != DEAD_SHADER_ADDR && !data.dispatch.IsDead());
     const uint state = data.traversal.committed.State();
     RayHistoryWriteEnd(data, state);
+
+    // [SOGANG] Write per-ray traversal counters here, where data.counter holds the post-traversal values.
+    TraversalCounterWriteCounter(data);
 
     const Vpc32 returnAddr = data.traversal.ReturnAddress();
 

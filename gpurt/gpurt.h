@@ -949,6 +949,9 @@ struct DeviceSettings
 #if SOGANG_EXPERIMENT
     float                       experimentFloat0;
     float                       experimentFloat1;
+    uint32                      rayHistoryCounterMode;       // TraceRayCounterMode requested by the client for RDP
+                                                             // ray history captures. Only TraceRayCounterTraversal
+                                                             // overrides the default (TraceRayCounterRayHistoryLight).
 #endif
 };
 

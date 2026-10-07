@@ -583,6 +583,8 @@ static void TraversalInternal3_1(
                                               GPURT_RTIP3_1);
             lastNodePtr = INVALID_NODE;
 
+            RayHistorySetMaxStackDepth3_1(data, GetStackDepthAfterPush8Pop1(stackPtr, nextNodePtr));
+
             // Fallback to stackless walk
             if (nextNodePtr == INVALID_NODE)
             {

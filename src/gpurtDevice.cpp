@@ -1533,6 +1533,28 @@ uint32 Device::GetRayHistoryLightCounterMask() const
 }
 
 // =====================================================================================================================
+// [SOGANG] Counter mode used for RDP ray history captures. Defaults to RayHistoryLight (what RRA expects); the client
+// can request TraceRayCounterTraversal to dump per-ray traversal counters (e.g. numRayBoxTest) instead.
+uint32 Device::GetRayHistoryCounterMode() const
+{
+#if SOGANG_EXPERIMENT
+    if (m_info.deviceSettings.rayHistoryCounterMode == TraceRayCounterTraversal)
+    {
+        return TraceRayCounterTraversal;
+    }
+#endif
+    return TraceRayCounterRayHistoryLight;
+}
+
+// =====================================================================================================================
+// [SOGANG] Token mask matching GetRayHistoryCounterMode(). Ray history tokens are filtered only by this mask (not by
+// counterMode), so it must be 0 in traversal mode to keep the buffer a pure array of per-ray counter records.
+uint32 Device::GetRayHistoryCounterMask() const
+{
+    return (GetRayHistoryCounterMode() == TraceRayCounterTraversal) ? 0 : GetRayHistoryLightCounterMask();
+}
+
+// =====================================================================================================================
 void Device::TraceRtDispatch(
     ClientCmdBufferHandle           cmdBuffer,
     RtPipelineType                  pipelineType,
@@ -1543,19 +1565,23 @@ void Device::TraceRtDispatch(
 
     // TraceRayCounterRayHistoryLight
 #if GPURT_CLIENT_INTERFACE_MAJOR_VERSION < 56
-    pConstants->constData.counterMode            = 1;
+    // pConstants->constData.counterMode            = 1;
+    pConstants->constData.counterMode            = GetRayHistoryCounterMode();
     pConstants->constData.counterRayIdRangeBegin = 0;
     pConstants->constData.counterRayIdRangeEnd   = 0xFFFFFFFF;
-    pConstants->constData.counterMask            = GetRayHistoryLightCounterMask();
+    // pConstants->constData.counterMask            = GetRayHistoryLightCounterMask();
+    pConstants->constData.counterMask            = GetRayHistoryCounterMask();
 
     pConstants->constData.rayDispatchWidth       = dispatchInfo.dimX;
     pConstants->constData.rayDispatchHeight      = dispatchInfo.dimY;
     pConstants->constData.rayDispatchDepth       = dispatchInfo.dimZ;
 #else
-    pConstants->descriptorTable.constData.counterMode            = 1;
+    // pConstants->descriptorTable.constData.counterMode            = 1;
+    pConstants->descriptorTable.constData.counterMode            = GetRayHistoryCounterMode();
     pConstants->descriptorTable.constData.counterRayIdRangeBegin = 0;
     pConstants->descriptorTable.constData.counterRayIdRangeEnd   = 0xFFFFFFFF;
-    pConstants->descriptorTable.constData.counterMask            = GetRayHistoryLightCounterMask();
+    // pConstants->descriptorTable.constData.counterMask            = GetRayHistoryLightCounterMask();
+    pConstants->descriptorTable.constData.counterMask            = GetRayHistoryCounterMask();
 
     pConstants->descriptorTable.constData.rayDispatchWidth       = dispatchInfo.dimX;
     pConstants->descriptorTable.constData.rayDispatchHeight      = dispatchInfo.dimY;
@@ -1706,7 +1732,8 @@ void Device::AddMetadataToList(
         .dispatchRayDimensionX  = dispatchDimX,
         .dispatchRayDimensionY  = dispatchDimY,
         .dispatchRayDimensionZ  = dispatchDimZ,
-        .counterMode            = 1,
+        // .counterMode            = 1,
+        .counterMode            = GetRayHistoryCounterMode(),
         .counterMask            = 0,
         .counterStride          = sizeof(uint32),
         .rayCounterDataSize     = uint32(GetRayHistoryBufferSizeInBytes()),
@@ -1829,15 +1856,19 @@ void Device::TraceIndirectRtDispatch(
 
                 // TraceRayCounterRayHistoryLight
 #if GPURT_CLIENT_INTERFACE_MAJOR_VERSION < 56
-                pConstants->constData.counterMode            = 1;
+                // pConstants->constData.counterMode            = 1;
+                pConstants->constData.counterMode            = GetRayHistoryCounterMode();
                 pConstants->constData.counterRayIdRangeBegin = 0;
                 pConstants->constData.counterRayIdRangeEnd   = 0xFFFFFFFF;
-                pConstants->constData.counterMask            = GetRayHistoryLightCounterMask();
+                // pConstants->constData.counterMask            = GetRayHistoryLightCounterMask();
+                pConstants->constData.counterMask            = GetRayHistoryCounterMask();
 #else
-                pConstants->descriptorTable.constData.counterMode            = 1;
+                // pConstants->descriptorTable.constData.counterMode            = 1;
+                pConstants->descriptorTable.constData.counterMode            = GetRayHistoryCounterMode();
                 pConstants->descriptorTable.constData.counterRayIdRangeBegin = 0;
                 pConstants->descriptorTable.constData.counterRayIdRangeEnd   = 0xFFFFFFFF;
-                pConstants->descriptorTable.constData.counterMask            = GetRayHistoryLightCounterMask();
+                // pConstants->descriptorTable.constData.counterMask            = GetRayHistoryLightCounterMask();
+                pConstants->descriptorTable.constData.counterMask            = GetRayHistoryCounterMask();
 #endif
             }
             else
@@ -1846,10 +1877,12 @@ void Device::TraceIndirectRtDispatch(
                 pPalDevice->CreateUntypedBufferViewSrds(1, &viewInfo, &pConstants->internalUavSrd[i]);
 
                 // TraceRayCounterRayHistoryLight
-                pConstants->counterMode            = 1;
+                // pConstants->counterMode            = 1;
+                pConstants->counterMode            = GetRayHistoryCounterMode();
                 pConstants->counterRayIdRangeBegin = 0;
                 pConstants->counterRayIdRangeEnd   = 0xFFFFFFFF;
-                pConstants->counterMask            = GetRayHistoryLightCounterMask();
+                // pConstants->counterMask            = GetRayHistoryLightCounterMask();
+                pConstants->counterMask            = GetRayHistoryCounterMask();
             }
 
             traceListInfo.pRayHistoryTraceBuffer             = Util::VoidPtrInc(pMappedData, runningOffset);
@@ -1867,7 +1900,8 @@ void Device::TraceIndirectRtDispatch(
 #endif
             traceListInfo.counterInfo.counterMask            = 0;
             traceListInfo.counterInfo.counterStride          = sizeof(uint32);
-            traceListInfo.counterInfo.counterMode            = 1;
+            // traceListInfo.counterInfo.counterMode            = 1;
+            traceListInfo.counterInfo.counterMode            = GetRayHistoryCounterMode();
             traceListInfo.counterInfo.counterRayIdRangeBegin = 0;
             traceListInfo.counterInfo.counterRayIdRangeEnd   = 0xFFFFFFFF;
             traceListInfo.counterInfo.stateObjectHash        = dispatchInfo.stateObjectHash;
