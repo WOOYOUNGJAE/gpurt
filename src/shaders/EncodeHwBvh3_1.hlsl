@@ -1287,10 +1287,13 @@ static void EncodeCompressedBoxNode(
 
         const float aabbSum = laneGroup.Sum(aabbSa);
         const float aabbMax = laneGroup.Max(aabbSa);
-        const uint aabbMaxChildIdx = laneGroup.GetFirstActiveLaneIndex(aabbSa == aabbMax);
+
+        const uint aabbMaxLane     = laneGroup.GetFirstActiveLaneIndex(aabbSa == aabbMax);
+        const uint childSlot       = isLeaf ? (boxOrLeafChildIndex + numBoxChildren) : boxOrLeafChildIndex;
+        const uint aabbMaxChildIdx = laneGroup.Broadcast(childSlot, aabbMaxLane);
 
         uint bestObbMatrixIdx = INVALID_OBB;
-        if ((aabbMaxChildIdx == laneGroup.laneIndex) && (isLeaf))
+        if ((aabbMaxLane == laneGroup.laneIndex) && (isLeaf))
         {
             uint packedFlags = scratchNode.packedFlags;
 
@@ -1323,7 +1326,7 @@ static void EncodeCompressedBoxNode(
             bestObbMatrixIdx = ExtractScratchNodeObbMatrixIdx(packedFlags);
         }
 
-        bestObbMatrixIdx = laneGroup.Broadcast(bestObbMatrixIdx, aabbMaxChildIdx);
+        bestObbMatrixIdx = laneGroup.Broadcast(bestObbMatrixIdx, aabbMaxLane);
 
         if (laneGroup.IsFirstLane())
         {
