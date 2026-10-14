@@ -85,6 +85,24 @@ float GetScratchNodeSurfaceArea(
 }
 
 //=====================================================================================================================
+// Simplified version of GetScratchNodeSurfaceArea() with fewer parameters.
+// "isLeafNode" refers to an original leaf, excluding collapsed leaves, that means scratchIndex >= (numActivePrims - 1).
+float GetScratchNodeSurfaceArea_EarlyPairingEnabled(
+    in ScratchNode  node,
+    in bool         isLeafNode
+)
+{
+    if (isLeafNode == false)
+    {
+        return node.sah_or_v2_or_instBasePtr.y;
+    }
+    else
+    {
+        return ComputeBoxSurfaceArea(GetScratchNodeBoundingBox_EarlyPairingEnabled(node, true));
+    }
+}
+
+//=====================================================================================================================
 static uint CreateBoxNodePointer(
     in uint nodeOffsetInBytes,
     in bool writeAsFp16BoxNode)

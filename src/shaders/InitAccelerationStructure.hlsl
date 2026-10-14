@@ -199,7 +199,7 @@ void InitAccelerationStructure(
     }
 
 #if SOGANG_EXPERIMENT
-    ResetCounters(ScratchGlobal, BuilderConstants.sgDebugCountersScratchOffset, 4);
+    ResetCounters(ScratchGlobal, BuilderConstants.sgDebugCountersScratchOffset, 8);
 #endif
 
     HeaderBuffer.Store<AccelStructMetadataHeader>(0, BuilderConstants.metadataHeader);

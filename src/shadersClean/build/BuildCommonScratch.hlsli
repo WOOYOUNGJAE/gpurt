@@ -143,6 +143,59 @@ static BoundingBox GetScratchNodeBoundingBox(
 }
 
 //=====================================================================================================================
+// Simplified version of GetScratchNodeBoundingBox() with fewer parameters.
+static BoundingBox GetScratchNodeBoundingBox_EarlyPairingEnabled(
+    in ScratchNode node,
+    in bool        isLeafNode)
+{
+    BoundingBox bbox;
+
+    if (isLeafNode && (IsTrianglePrimitiveBuild() || IsCompressedTrianglePrimitiveBuild()))
+    {
+        // Generate the BoundingBox of given triangle node
+        bbox = GenerateTriangleBoundingBox(node.bbox_min_or_v0,
+                                           node.bbox_max_or_v1,
+                                           node.sah_or_v2_or_instBasePtr);
+
+        if (isLeafNode && (IsTrianglePrimitiveBuild() || IsCompressedTrianglePrimitiveBuild()))
+        {
+            GPU_ASSERT(Settings.triangleCompressionMode == PAIR_TRIANGLE_COMPRESSION);
+            GPU_ASSERT(Settings.enableEarlyPairCompression);
+
+            // Generate the BoundingBox of given triangle node
+            bbox = GenerateTriangleBoundingBox(node.bbox_min_or_v0,
+                                               node.bbox_max_or_v1,
+                                               node.sah_or_v2_or_instBasePtr);
+            // Early triangle pairing encodes the quad in a single scratch node
+            if (IsScratchNodeQuadPrimitive(node))
+            {
+                const float3 v3 = float3(asfloat(node.splitBox_or_nodePointer),
+                                         asfloat(node.numPrimitivesAndDoCollapse),
+                                         asfloat(node.sortedPrimIndex));
+
+                bbox.min = min(v3, bbox.min);
+                bbox.max = max(v3, bbox.max);
+            }
+        }
+        else
+        {
+            // Internal nodes and AABB geometry encodes bounding box in scratch node
+            bbox.min = node.bbox_min_or_v0;
+            bbox.max = node.bbox_max_or_v1;
+        }
+
+    }
+    else
+    {
+        // Internal nodes and AABB geometry encodes bounding box in scratch node
+        bbox.min = node.bbox_min_or_v0;
+        bbox.max = node.bbox_max_or_v1;
+    }
+
+    return bbox;
+}
+
+//=====================================================================================================================
 // Get instance node bound from scratch node. Caller must ensure the scratch node passed in is a TLAS leaf node
 static BoundingBox GetScratchNodeInstanceBounds(
     in ScratchNode node)

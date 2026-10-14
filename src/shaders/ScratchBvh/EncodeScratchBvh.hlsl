@@ -25,7 +25,6 @@
 #ifndef _ENCODE_SCRATCH_BVH_HLSL
 #define _ENCODE_SCRATCH_BVH_HLSL
 #define USE_LDS_CHILDREN 1 // this is default setting
-#define MERGE_CONSIDERING_DOBB 0
 #define MERGED_STACK_ENTRY 0xFFFFFFFE
 //=====================================================================================================================
 #include "../../shadersClean/common/ShaderDefs.hlsli"
@@ -831,6 +830,5 @@ void EncodeScratchBvh(
 #endif
 
 #undef USE_LDS_CHILDREN
-#undef MERGE_CONSIDERING_DOBB
 #undef MERGED_STACK_ENTRY
 #endif
