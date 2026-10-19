@@ -295,7 +295,7 @@ static bool MergeBoxNodes(
             if (numMergedNodesToCurLeader > 0)
             {
                 const uint sgDebugCountersOffset = ShaderConstants.offsets.sgDebugCounters;
-                ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + numMergedNodesToCurLeader * sizeof(uint), 1);
+                // ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + numMergedNodesToCurLeader * sizeof(uint), 1);
             }
             numMergedNodesToCurLeader = 0;
 #endif
@@ -391,7 +391,7 @@ static bool MergeBoxNodes(
                 if (numBoxesInSource > 0)
                 {
                     const uint sgDebugCountersOffset = ShaderConstants.offsets.sgDebugCounters;
-                    ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + 0, 1);
+                    // ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + 0, 1);
                 }
 #endif
             }
@@ -412,7 +412,7 @@ static bool MergeBoxNodes(
     if (numMergedNodesToCurLeader > 0)
     {
         const uint sgDebugCountersOffset = ShaderConstants.offsets.sgDebugCounters;
-        ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + numMergedNodesToCurLeader * sizeof(uint), 1);
+        // ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + numMergedNodesToCurLeader * sizeof(uint), 1);
     }
 #endif
 
@@ -513,7 +513,7 @@ static bool MergeLeafOnlyBoxNodes(
             if (numMergedNodesToCurLeader > 0)
             {
                 const uint sgDebugCountersOffset = ShaderConstants.offsets.sgDebugCounters;
-                ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + numMergedNodesToCurLeader * sizeof(uint), 1);
+                // ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + numMergedNodesToCurLeader * sizeof(uint), 1);
             }
             numMergedNodesToCurLeader = 0;
 #endif
@@ -593,7 +593,7 @@ static bool MergeLeafOnlyBoxNodes(
     if (numMergedNodesToCurLeader > 0)
     {
         const uint sgDebugCountersOffset = ShaderConstants.offsets.sgDebugCounters;
-        ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + numMergedNodesToCurLeader * sizeof(uint), 1);
+        // // ScratchGlobal.InterlockedAdd(sgDebugCountersOffset + numMergedNodesToCurLeader * sizeof(uint), 1);
     }
 #endif
 

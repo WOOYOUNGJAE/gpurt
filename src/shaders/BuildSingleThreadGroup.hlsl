@@ -223,7 +223,7 @@ void InitBuild(
         if (Settings.enableOrientedBoundingBoxes != 0)
         {
             const ObbRefitStackPtrs initRefitStackPtrs = {
-                0, 1, 1, 0,
+                0, 1, 1, 0, 0
             };
 
             ScratchBuffer.Store<ObbRefitStackPtrs>(ShaderConstants.offsets.obbRefitStackPtrs, initRefitStackPtrs);
