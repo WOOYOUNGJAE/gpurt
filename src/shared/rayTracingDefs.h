@@ -67,6 +67,18 @@ static_assert(GPURT_RTIP3_1 == uint32_t(Pal::RayTracingIpLevel::RtIp3_1), "GPURT
 #endif
 #endif
 
+#if SOGANG_EXPERIMENT
+#define SG_DEBUG_OFFSET_DST_NODES 0
+#define SG_DEBUG_OFFSET_LEAF_ONLY_DOBB_NODES 1
+#define SG_DEBUG_OFFSET_MIXED_DOBB_NODES 2 // Nodes that are a mix of leaf and internal nodes
+#define SG_DEBUG_OFFSET_DOBB_DONE 3
+#define SG_DEBUG_OFFSET_FAT_LEAF_DOBB 4
+#define SG_DEBUG_OFFSET_FAT_MIXED_DOBB 5
+#define SG_DEBUG_OFFSET_MAX_IS_LEAF_IN_MIXED 6
+#define SG_DEBUG_OFFSET_MAX_IS_BLOCK_CHILD 6
+#define SG_DEBUG_OFFSET_MAX_IS_BOX_IN_MIXED 7
+#endif
+
 //=====================================================================================================================
 #define REBRAID_PHASE_CALC_SUM                 0
 #define REBRAID_PHASE_OPEN                     1
@@ -109,10 +121,12 @@ struct ObbKdop
 {
     float2 minMax[13];
     uint obbMatrixIndex;
-    uint __padding[5];
+    uint memberSlotBase;    // MERGE_BOX_NODES_FLAG == 2: first K-DOP slot of the block members after the leader
+    uint __padding[4];
 };
 
 #define OBBKDOP_OBBMATRIX_INDEX_OFFSET 104
+#define OBBKDOP_MEMBER_SLOT_BASE_OFFSET 108
 #define OBBKDOP_SIZE 128
 
 #define OBB_FLAGS_BIT_OFFSET_NUM_BOX_CHILDREN 0u
@@ -197,12 +211,14 @@ struct ObbRefitStackPtrs
     uint groupCountY;   // Set to 1 (used as indirect dispatch Y dimension)
     uint groupCountZ;   // Set to 1 (used as indirect dispatch Z dimension)
     uint batchCount;    // Number of fat leaf nodes (internal nodes with all leaf children)
+    uint memberSlotCount; // Number of K-DOP slots allocated for block members (MERGE_BOX_NODES_FLAG == 2)
 };
 
 #define STACK_PTRS_OBB_REFIT_GROUP_COUNT_X 0
 #define STACK_PTRS_OBB_REFIT_GROUP_COUNT_Y 4
 #define STACK_PTRS_OBB_REFIT_GROUP_COUNT_Z 8
 #define STACK_PTRS_OBB_REFIT_BATCH_COUNT   12
+#define STACK_PTRS_OBB_REFIT_MEMBER_SLOT_COUNT 16
 
 #define REFIT_ORIENTED_BOUNDS3_1_THREADGROUP_SIZE 32
 

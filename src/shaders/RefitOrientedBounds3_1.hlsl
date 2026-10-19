@@ -135,6 +135,24 @@ float ReadKDopMax(uint laneGroupIndex, uint planeIndex)
 }
 
 //=====================================================================================================================
+// K-DOP slot index of block member m. The leader (m == 0) always uses the slot of its own node.
+//
+// MERGE_BOX_NODES_FLAG == 1: merged nodes keep their place in the dst BVH, so member m owns node (leader + m).
+// MERGE_BOX_NODES_FLAG == 2: merged nodes are compacted away and (leader + m) belongs to another node, so members
+//                            1..n-1 use slots allocated past the last dst box node, starting at memberSlotBase.
+uint GetBlockMemberKdopIndex(
+    uint leaderIndex,
+    uint memberSlotBase,
+    uint memberIndex)
+{
+#if (MERGE_BOX_NODES_FLAG == 2)
+    return (memberIndex == 0) ? leaderIndex : (memberSlotBase + memberIndex - 1u);
+#else
+    return leaderIndex + memberIndex;
+#endif
+}
+
+//=====================================================================================================================
 BoundingBox ComputeTriangleKDop(
     const uint         laneGroupIndex,
     const TriangleData tri,
@@ -490,7 +508,7 @@ void RefitOrientedBoundsImpl(
         // Bit k of the mask is set when a block member's leaf segment starts at leaf k. A zero mask means this is
         // not a block node, which is handled below as a single member that owns every child.
         const uint leafStartMask = (obbFlags >> OBB_FLAGS_BIT_OFFSET_LEAF_START_MASK) & bits(LANE_GROUP_SIZE);
-        const bool isBlockNode   = (leafStartMask != 0);
+        const bool isLeafOnlyBlockNode   = (leafStartMask != 0);
 
         // Fetch child info on each lane in the group
         ChildInfo childInfo = DstBuffer.Load<ChildInfo>(nodeOffset + GetChildInfoOffset(laneGroup.laneIndex));
@@ -511,18 +529,48 @@ void RefitOrientedBoundsImpl(
         // Compute the per-lane prefix sum and subtract the lead lane sum from all to obtain the lane group offsets.
         const uint prefixSumOffset = laneGroup.ExclusivePrefixSum(packedLength);
 
+#if (MERGE_BOX_NODES_FLAG == 1)
         // With merging enabled the dst BVH is not compacted, so box child k always owns node (base + k).
         // The NodeRangeLength of a merged sibling is 0 on purpose, which makes the prefix sum collapse it onto its
         // leader. Traversal wants that, but here every block member has to reach its own K-DOP slot.
         const uint packedOffset =
             (nodeMergingEnabled && (childIsLeaf == false)) ? laneGroup.laneIndex : prefixSumOffset;
+#else
+        // The dst BVH is compacted, so a merged sibling has no node of its own. The prefix sum resolves it to its
+        // leader, and its K-DOP slot is looked up separately below.
+        const uint packedOffset = prefixSumOffset;
+#endif
 
         // Compute absolute offset in memory from packed offset per lane
         uint childNodeOffset = childIsLeaf ? baseLeafNodeOffset : baseInternalNodeOffset;
         childNodeOffset += (((packedOffset >> shift) & 0xffff) * 128u);
 
         const uint childIndex = (childNodeOffset - offsets.internalNodes) / QBVH8::NodeSizeInBytes;
-        const uint childKdopOfs = ShaderConstants.offsets.qbvhKdops + (childIndex * sizeof(ObbKdop));
+
+        uint childKdopIndex = childIndex;
+#if (MERGE_BOX_NODES_FLAG == 2)
+        // A box child is a merged block member when its left sibling has NodeRangeLength 0, since that sibling
+        // shares its node with it. Members follow their leader in consecutive lanes, so the distance to the
+        // leader lane is the member index. Without merging every box child has NodeRangeLength 1 and this is 0.
+        const bool isBoxChild    = isChildValid && (childIsLeaf == false);
+        const uint boxChildMask  = laneGroup.Ballot(isBoxChild);
+        const uint mergedBoxMask =
+            (laneGroup.Ballot(isBoxChild && (childInfo.NodeRangeLength() == 0)) << 1) & boxChildMask;
+
+        const uint leaderLane        = firstbithigh(~mergedBoxMask & bits(laneGroup.laneIndex + 1));
+        const uint memberIndexInLeaf = laneGroup.laneIndex - leaderLane;
+
+        if (isBoxChild && (memberIndexInLeaf != 0))
+        {
+            // The leader recorded where its members' K-DOPs went before it signalled this node.
+            const uint memberSlotBase = ScratchGlobal.Load(
+                ShaderConstants.offsets.qbvhKdops + (childIndex * sizeof(ObbKdop)) + OBBKDOP_MEMBER_SLOT_BASE_OFFSET);
+
+            childKdopIndex = GetBlockMemberKdopIndex(childIndex, memberSlotBase, memberIndexInLeaf);
+        }
+#endif
+
+        const uint childKdopOfs = ShaderConstants.offsets.qbvhKdops + (childKdopIndex * sizeof(ObbKdop));
 
         const uint bestObbLaneIndex = (obbFlags >> OBB_FLAGS_BIT_OFFSET_AABB_MAX_CHILD_INDEX) & 0x7u;
         const uint bestObbMatrixIdxLeaf = (obbFlags >> OBB_FLAGS_BIT_OFFSET_OBB_MATRIX_INDEX);
@@ -544,8 +592,26 @@ void RefitOrientedBoundsImpl(
         // and keeps it in registers for the node wide reduction below.
         BoundingBox candidateObb = InvalidBoundingBox;
 
-        uint remainingLeafStarts = isBlockNode ? leafStartMask : 1u;
-        uint numBlockMembers     = 0;
+        uint memberSlotBase = 0;
+#if (MERGE_BOX_NODES_FLAG == 2)
+        // Members after the leader have no node of their own in the compacted dst BVH, so their K-DOP slots are
+        // allocated past the last dst box node. Together with the leaders this never exceeds the number of wide
+        // nodes, which is what the K-DOP buffer is sized for without compaction.
+        if (laneGroup.IsFirstLane() && isLeafOnlyBlockNode && (countbits(leafStartMask) > 1))
+        {
+            uint memberSlotOffset = 0;
+            ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.obbRefitStackPtrs + STACK_PTRS_OBB_REFIT_MEMBER_SLOT_COUNT,
+                                         countbits(leafStartMask) - 1u,
+                                         memberSlotOffset);
+
+            memberSlotBase =
+                ReadAccelStructHeaderField(ACCEL_STRUCT_HEADER_NUM_INTERNAL_FP32_NODES_OFFSET) + memberSlotOffset;
+        }
+        memberSlotBase = laneGroup.ReadFirstLane(memberSlotBase);
+#endif
+
+        uint remainingLeafStarts = isLeafOnlyBlockNode ? leafStartMask : 1u;
+        uint blockMemberIndex = 0;
 
         while (remainingLeafStarts != 0)
         {
@@ -562,7 +628,7 @@ void RefitOrientedBoundsImpl(
             // freshly initialised on the first iteration, and holding a subset of this node's K-DOP when walking
             // up the tree. Only the members after it need a clean one, since each of them owns a separate slot.
             // Blocks are leaf-only nodes, so they are only ever seen on the first iteration.
-            if (numBlockMembers > 0)
+            if (blockMemberIndex > 0)
             {
                 if (laneGroup.IsFirstLane())
                 {
@@ -594,21 +660,14 @@ void RefitOrientedBoundsImpl(
                         UpdateKDopMax(laneGroupIndex, i, extents.y);
                     }
                 }
-
-                // Add 6 ULP scaled to the longest extent of padding to OBB extents for watertightness:
-                const float3 extents = candidateObb.max - candidateObb.min;
-                const float longestExtent = abs(laneGroup.Max(max(extents.x, max(extents.y, extents.z))));
-                const float3 epsilonPadding = 7.15254e-7 * float3(longestExtent, longestExtent, longestExtent);
-                candidateObb.min -= epsilonPadding;
-                candidateObb.max += epsilonPadding;
             }
 
             // Write this member's K-DOP into its own slot. The parent still holds one child slot per member, and
-            // the lane addressing above makes member m resolve to (leader + m) when the parent reads it back.
+            // the K-DOP slot lookup above makes member m resolve to this slot when the parent reads it back.
             if (laneGroup.IsFirstLane())
             {
-                const uint memberKdopOfs =
-                    ShaderConstants.offsets.qbvhKdops + ((curNodeIndex + numBlockMembers) * sizeof(ObbKdop));
+                const uint memberKdopOfs = ShaderConstants.offsets.qbvhKdops +
+                    (GetBlockMemberKdopIndex(curNodeIndex, memberSlotBase, blockMemberIndex) * sizeof(ObbKdop));
 
                 for (uint i = 0; i < KDOP_PLANE_COUNT; i++)
                 {
@@ -617,7 +676,19 @@ void RefitOrientedBoundsImpl(
                 }
             }
 
-            numBlockMembers++;
+            blockMemberIndex++;
+        }
+
+        // Padding is applied after the member loop so that the longest extent is taken over every valid child of
+        // the node, not only the ones of a single member. The quantization grid below is shared by the whole node.
+        if (isChildValid)
+        {
+            // Add 6 ULP scaled to the longest extent of padding to OBB extents for watertightness:
+            const float3 extents = candidateObb.max - candidateObb.min;
+            const float longestExtent = abs(laneGroup.Max(max(extents.x, max(extents.y, extents.z))));
+            const float3 epsilonPadding = 7.15254e-7 * float3(longestExtent, longestExtent, longestExtent);
+            candidateObb.min -= epsilonPadding;
+            candidateObb.max += epsilonPadding;
         }
 
         // Verify if OBB fits better than original AABBs.
@@ -635,6 +706,14 @@ void RefitOrientedBoundsImpl(
         const bool shouldWriteObbs = (Settings.enableOrientedBoundingBoxes & bit(BOTTOM_LEVEL));
         if ((bestObbMatrixIndex != INVALID_OBB) && shouldWriteObbs)
         {
+#if SOGANG_EXPERIMENT
+            if (laneGroup.IsFirstLane())
+            {
+                const uint counter = (iterations == 0) ? SG_DEBUG_OFFSET_LEAF_ONLY_DOBB_NODES
+                                                       : SG_DEBUG_OFFSET_MIXED_DOBB_NODES;
+                ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.sgDebugCounters + counter * sizeof(uint), 1);
+            }
+#endif
             const float3 minOfMins = laneGroup.Min(candidateObb.min);
             const float3 maxOfMaxs = laneGroup.Max(candidateObb.max);
 
@@ -670,13 +749,25 @@ void RefitOrientedBoundsImpl(
 
         // The matrix index belongs to the node, so every member slot carries the same one.
         // The K-DOP planes were already written per member inside the loop above.
-        if (laneGroup.laneIndex < numBlockMembers)
+        if (laneGroup.laneIndex < blockMemberIndex)
         {
-            const uint memberKdopOfs =
-                ShaderConstants.offsets.qbvhKdops + ((curNodeIndex + laneGroup.laneIndex) * sizeof(ObbKdop));
+            const uint memberKdopOfs = ShaderConstants.offsets.qbvhKdops +
+                (GetBlockMemberKdopIndex(curNodeIndex, memberSlotBase, laneGroup.laneIndex) * sizeof(ObbKdop));
 
             ScratchGlobal.Store(memberKdopOfs + (KDOP_PLANE_COUNT * sizeof(float2)), bestObbMatrixIndex);
         }
+
+#if (MERGE_BOX_NODES_FLAG == 2)
+        // Record where the members went in the leader slot, which the parent reaches through the prefix sum.
+        // Written for every node so that no stale value is left behind. It must land before the parent counter
+        // is signalled below.
+        if (laneGroup.IsFirstLane())
+        {
+            ScratchGlobal.Store(ShaderConstants.offsets.qbvhKdops + (curNodeIndex * sizeof(ObbKdop)) +
+                                    OBBKDOP_MEMBER_SLOT_BASE_OFFSET,
+                                memberSlotBase);
+        }
+#endif
 
         // Continue up the tree
         iterations++;
@@ -758,6 +849,39 @@ void RefitOrientedBounds(
         ShaderConstants.offsets.obbRefitStackPtrs + STACK_PTRS_OBB_REFIT_BATCH_COUNT);
 
     RefitOrientedBoundsImpl(globalId, localId, obbRefitBatchCount);
+#endif
+
+#if SOGANG_EXPERIMENT && GPURT_ENABLE_GPU_DEBUG
+    if (WaveIsFirstLane())
+    {
+        const uint groupCount = ScratchGlobal.Load(
+            ShaderConstants.offsets.obbRefitStackPtrs + STACK_PTRS_OBB_REFIT_GROUP_COUNT_X);
+        const uint numThreads = groupCount * BUILD_THREADGROUP_SIZE;
+
+        uint prevDone;
+        ScratchGlobal.InterlockedAdd(
+            ShaderConstants.offsets.sgDebugCounters + SG_DEBUG_OFFSET_DOBB_DONE * sizeof(uint), WaveGetLaneCount(), prevDone);
+
+        if ((prevDone + WaveGetLaneCount()) == numThreads)
+        {
+            // Atomic reads to see every other wave's writes.
+            uint numDstInternalNodes = 0;
+            uint numLeafOnlyDobbNodes;
+            uint numMixedDobbNodes;
+            uint numDobbNodes;
+            uint numFatLeafDobbNodes;
+            uint numFatMixedDobbNodes;
+
+            // ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.sgDebugCounters + SG_DEBUG_OFFSET_DST_NODES * sizeof(uint), 0, numDstInternalNodes);
+            ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.sgDebugCounters + SG_DEBUG_OFFSET_LEAF_ONLY_DOBB_NODES * sizeof(uint), 0, numLeafOnlyDobbNodes);
+            ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.sgDebugCounters + SG_DEBUG_OFFSET_MIXED_DOBB_NODES * sizeof(uint), 0, numMixedDobbNodes);
+            ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.sgDebugCounters + SG_DEBUG_OFFSET_FAT_LEAF_DOBB * sizeof(uint), 0, numFatLeafDobbNodes);
+            ScratchGlobal.InterlockedAdd(ShaderConstants.offsets.sgDebugCounters + SG_DEBUG_OFFSET_FAT_MIXED_DOBB * sizeof(uint), 0, numFatMixedDobbNodes);
+            numDobbNodes = numLeafOnlyDobbNodes + numMixedDobbNodes;
+
+            GPU_DPF("numLeafOnlyDobbNodes= %u, numMixedDobbNodes= %u, numDobbNodes= %u, numFatLeafDobbNodes= %u, numFatMixedDobbNodes= %u", numLeafOnlyDobbNodes, numMixedDobbNodes, numDobbNodes, numFatLeafDobbNodes, numFatMixedDobbNodes);
+        }
+    }
 #endif
 }
 #endif
